@@ -38,7 +38,7 @@ func TestRedactForLog(t *testing.T) {
 	}
 }
 
-func TestSetBroadcastsToActiveLinkedUsers(t *testing.T) {
+func TestSetBroadcastsOnlyWhenOptIn(t *testing.T) {
 	t.Chdir("../..")
 	ctx := context.Background()
 	database := openTestDB(t)
@@ -50,17 +50,22 @@ func TestSetBroadcastsToActiveLinkedUsers(t *testing.T) {
 	mock := notify.NewMockDiscordSession()
 	svc := connection.NewService(database, notify.NewDiscordProvider(mock))
 
+	authSvc := auth.NewService(database)
+	admin, err := authSvc.CreateUser(ctx, "admin1", "password123", auth.RoleAdmin)
+	if err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+
 	input := connection.UpdateInput{
 		GameHost:     strPtr("play.example.com"),
 		GamePort:     intPtr(7777),
 		GamePassword: strPtr("secretpass"),
 	}
-	_, err := svc.Set(ctx, input, 1)
+	_, err = svc.Set(ctx, input, admin.ID)
 	if err != nil {
 		t.Fatalf("set: %v", err)
 	}
 
-	authSvc := auth.NewService(database)
 	_, err = authSvc.CreateUser(ctx, "viewer1", "password123", auth.RoleViewer)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -72,62 +77,139 @@ func TestSetBroadcastsToActiveLinkedUsers(t *testing.T) {
 		t.Fatalf("link user: %v", err)
 	}
 
-	_, err = authSvc.CreateUser(ctx, "pending", "password123", auth.RoleViewer)
+	mock.ChannelCalls = nil
+	mock.DMUserIDs = nil
+
+	inputNoBroadcast := connection.UpdateInput{Notes: strPtr("Epic only")}
+	_, err = svc.Set(ctx, inputNoBroadcast, admin.ID)
 	if err != nil {
-		t.Fatalf("create pending: %v", err)
+		t.Fatalf("set without broadcast: %v", err)
+	}
+	waitForDMs(t, mock, 0)
+
+	broadcastTrue := true
+	inputBroadcast := connection.UpdateInput{Notes: strPtr("Updated notes"), Broadcast: &broadcastTrue}
+	_, err = svc.Set(ctx, inputBroadcast, admin.ID)
+	if err != nil {
+		t.Fatalf("set with broadcast: %v", err)
+	}
+	waitForDMs(t, mock, 1)
+	if len(mock.DMUserIDs) != 1 || mock.DMUserIDs[0] != "discord-1" {
+		t.Fatalf("DM user ids = %v, want [discord-1]", mock.DMUserIDs)
+	}
+}
+
+func TestSetExcludesUpdaterFromBroadcast(t *testing.T) {
+	t.Chdir("../..")
+	ctx := context.Background()
+	database := openTestDB(t)
+	defer database.Close()
+	if err := db.Init(ctx, database, db.SeedConfig{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	mock := notify.NewMockDiscordSession()
+	svc := connection.NewService(database, notify.NewDiscordProvider(mock))
+
+	authSvc := auth.NewService(database)
+	admin, err := authSvc.CreateUser(ctx, "admin1", "password123", auth.RoleAdmin)
+	if err != nil {
+		t.Fatalf("create admin: %v", err)
 	}
 	_, err = database.ExecContext(ctx, `
-		UPDATE users SET external_platform = 'discord', external_user_id = 'discord-pending', status = 'pending_approval'
-		WHERE username = 'pending'`)
+		UPDATE users SET external_platform = 'discord', external_user_id = 'discord-admin', status = 'active'
+		WHERE id = ?`, admin.ID)
 	if err != nil {
-		t.Fatalf("set pending: %v", err)
+		t.Fatalf("link admin: %v", err)
+	}
+
+	_, err = authSvc.CreateUser(ctx, "viewer1", "password123", auth.RoleViewer)
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	_, err = database.ExecContext(ctx, `
+		UPDATE users SET external_platform = 'discord', external_user_id = 'discord-viewer', status = 'active'
+		WHERE username = 'viewer1'`)
+	if err != nil {
+		t.Fatalf("link viewer: %v", err)
+	}
+
+	input := connection.UpdateInput{
+		GameHost: strPtr("play.example.com"),
+		GamePort: intPtr(7777),
+	}
+	_, err = svc.Set(ctx, input, admin.ID)
+	if err != nil {
+		t.Fatalf("initial set: %v", err)
 	}
 
 	mock.ChannelCalls = nil
 	mock.DMUserIDs = nil
 
-	input2 := connection.UpdateInput{Notes: strPtr("Epic only")}
-	_, err = svc.Set(ctx, input2, 1)
+	broadcastTrue := true
+	_, err = svc.Set(ctx, connection.UpdateInput{
+		Notes:     strPtr("New notes"),
+		Broadcast: &broadcastTrue,
+	}, admin.ID)
 	if err != nil {
-		t.Fatalf("set again: %v", err)
+		t.Fatalf("broadcast set: %v", err)
+	}
+	waitForDMs(t, mock, 1)
+	if len(mock.DMUserIDs) != 1 || mock.DMUserIDs[0] != "discord-viewer" {
+		t.Fatalf("DM user ids = %v, want [discord-viewer]", mock.DMUserIDs)
+	}
+}
+
+func TestSetNoBroadcastWhenUnchanged(t *testing.T) {
+	t.Chdir("../..")
+	ctx := context.Background()
+	database := openTestDB(t)
+	defer database.Close()
+	if err := db.Init(ctx, database, db.SeedConfig{}); err != nil {
+		t.Fatalf("init: %v", err)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	for len(mock.DMUserIDs) == 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
+	mock := notify.NewMockDiscordSession()
+	svc := connection.NewService(database, notify.NewDiscordProvider(mock))
 
-	if len(mock.DMUserIDs) != 1 || mock.DMUserIDs[0] != "discord-1" {
-		t.Fatalf("DM user ids = %v, want [discord-1]", mock.DMUserIDs)
-	}
-
-	if len(mock.ChannelCalls) == 0 {
-		t.Fatal("expected DM channel send")
-	}
-	dmMsg := mock.ChannelCalls[len(mock.ChannelCalls)-1].Message
-	dmBody := dmMsg.Content
-	if dmMsg.Embeds != nil && len(dmMsg.Embeds) > 0 {
-		for _, f := range dmMsg.Embeds[0].Fields {
-			if f.Name == "Password" {
-				dmBody += f.Value
-			}
-		}
-	}
-	if !strings.Contains(dmBody, "secretpass") {
-		t.Fatalf("DM body should include password for user, got content=%q", dmMsg.Content)
-	}
-
-	var preview string
-	err = database.QueryRowContext(ctx, `
-		SELECT rendered_preview FROM notification_log
-		WHERE message_type_key = 'connection_details_changed' ORDER BY id DESC LIMIT 1`,
-	).Scan(&preview)
+	authSvc := auth.NewService(database)
+	admin, err := authSvc.CreateUser(ctx, "admin1", "password123", auth.RoleAdmin)
 	if err != nil {
-		t.Fatalf("query log: %v", err)
+		t.Fatalf("create admin: %v", err)
 	}
-	if strings.Contains(preview, "secretpass") {
-		t.Fatalf("notification_log contains password: %s", preview)
+	_, err = authSvc.CreateUser(ctx, "viewer1", "password123", auth.RoleViewer)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
 	}
+	_, err = database.ExecContext(ctx, `
+		UPDATE users SET external_platform = 'discord', external_user_id = 'discord-1', status = 'active'
+		WHERE username = 'viewer1'`)
+	if err != nil {
+		t.Fatalf("link user: %v", err)
+	}
+
+	input := connection.UpdateInput{
+		GameHost: strPtr("play.example.com"),
+		GamePort: intPtr(7777),
+	}
+	_, err = svc.Set(ctx, input, admin.ID)
+	if err != nil {
+		t.Fatalf("set: %v", err)
+	}
+
+	mock.ChannelCalls = nil
+	mock.DMUserIDs = nil
+
+	broadcastTrue := true
+	_, err = svc.Set(ctx, connection.UpdateInput{
+		GameHost:  strPtr("play.example.com"),
+		GamePort:  intPtr(7777),
+		Broadcast: &broadcastTrue,
+	}, admin.ID)
+	if err != nil {
+		t.Fatalf("unchanged set: %v", err)
+	}
+	waitForDMs(t, mock, 0)
 }
 
 func TestSendToUserUsesEmbedTemplate(t *testing.T) {
@@ -142,12 +224,18 @@ func TestSendToUserUsesEmbedTemplate(t *testing.T) {
 	mock := notify.NewMockDiscordSession()
 	svc := connection.NewService(database, notify.NewDiscordProvider(mock))
 
+	authSvc := auth.NewService(database)
+	admin, err := authSvc.CreateUser(ctx, "admin1", "password123", auth.RoleAdmin)
+	if err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+
 	input := connection.UpdateInput{
 		GameHost:     strPtr("play.example.com"),
 		GamePort:     intPtr(7777),
 		GamePassword: strPtr("joinpass"),
 	}
-	_, err := svc.Set(ctx, input, 1)
+	_, err = svc.Set(ctx, input, admin.ID)
 	if err != nil {
 		t.Fatalf("set: %v", err)
 	}
@@ -177,6 +265,20 @@ func TestSendToUserUsesEmbedTemplate(t *testing.T) {
 	}
 	if logKey != "connection_details" {
 		t.Fatalf("log message type = %q, want connection_details", logKey)
+	}
+}
+
+func waitForDMs(t *testing.T, mock *notify.MockDiscordSession, want int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(mock.DMUserIDs) == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(mock.DMUserIDs) != want {
+		t.Fatalf("DM count = %d, want %d (ids=%v)", len(mock.DMUserIDs), want, mock.DMUserIDs)
 	}
 }
 

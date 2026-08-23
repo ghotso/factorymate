@@ -785,7 +785,7 @@ On startup, `DedupePlayerStateByName` merges any legacy duplicate `player_state`
 
 **`server_state` updates:** On every fast poll, upsert `server_state` row `id=1`. Emit `server_online` when previous poll was unreachable and current is reachable; emit `server_offline` when previous was reachable and current is unreachable. First successful poll when `server_online` IS NULL follows the First Observation rule above (set `true`, do not emit `server_online`).
 
-**FRM safe reconnect (poller gate):** When a fast poll is unreachable (connection refused, timeout, or any endpoint error), background FRM HTTP polling stops entirely until recovery completes. The poller enters `recovery_phase = down` and TCP-probes the game server using **Settings → Connection** `gameHost`/`gamePort` only (no fallback to `frm_host`). Probe interval is 5s (not user-configurable). When TCP connect succeeds, `recovery_phase = recovering` and the poller waits `app_settings.frm_recovery_grace_seconds` (default 60, editable in Settings → General) before resuming FRM — a successful TCP probe does **not** mean FRM is ready. After grace, a single `getSessionInfo` probe runs; on success the full fast poll resumes and `recovery_phase` returns to `healthy`. On `getSessionInfo` or full-poll failure, return to `down` without a second `server_offline` (already offline). Slow poll skips all FRM calls while `recovery_phase != healthy`. Admin-initiated FRM test (`POST /api/settings/frm/test`) and settings PUT validation are not gated. `GET /api/status` exposes `recoveryPhase` (`healthy` | `down` | `recovering`) alongside `serverOnline`. On FactoryMate startup, if `server_online = false`, the gate initializes in `down` to avoid an immediate FRM hit during an ongoing outage.
+**FRM safe reconnect (poller gate):** When a fast poll is unreachable (connection refused, timeout, or any endpoint error), background FRM HTTP polling stops entirely until recovery completes. The poller enters `recovery_phase = down` and TCP-probes the game server using **Settings → Connection → Save download API** `game_api_host`/`game_api_port` (local endpoint reachable from the FactoryMate container — not the player-facing join host). Probe interval is 5s (not user-configurable). When TCP connect succeeds, `recovery_phase = recovering` and the poller waits `app_settings.frm_recovery_grace_seconds` (default 60, editable in Settings → General) before resuming FRM — a successful TCP probe does **not** mean FRM is ready. After grace, a single `getSessionInfo` probe runs; on success the full fast poll resumes and `recovery_phase` returns to `healthy`. On `getSessionInfo` or full-poll failure, return to `down` without a second `server_offline` (already offline). Slow poll skips all FRM calls while `recovery_phase != healthy`. Admin-initiated FRM test (`POST /api/settings/frm/test`) and settings PUT validation are not gated. `GET /api/status` exposes `recoveryPhase` (`healthy` | `down` | `recovering`) alongside `serverOnline`. On FactoryMate startup, if `server_online = false`, the gate initializes in `down` to avoid an immediate FRM hit during an ongoing outage.
 
 ### 4.2.1 Event variable population
 
@@ -978,7 +978,7 @@ Two render paths exist, selected automatically by the target's `provider_type` a
 
 ### 5.5 Default template catalog
 
-All 17 message types (15 game events plus optional `connection_details_changed` and `connection_details` for template editing): see `backend/data/message_defaults.json`. M1 seed reads this file verbatim into `message_types.default_template_json` per key. The `connection_details_changed` type is editable in the template UI but delivery remains via `ConnectionDetailsService` (mandatory DM broadcast), not the game-event dispatcher.
+All 17 message types (15 game events plus optional `connection_details_changed` and `connection_details` for template editing): see `backend/data/message_defaults.json`. M1 seed reads this file verbatim into `message_types.default_template_json` per key. The `connection_details_changed` type is editable in the template UI but delivery remains via `ConnectionDetailsService` (opt-in admin-confirmed DM broadcast), not the game-event dispatcher.
 
 ---
 
@@ -1072,7 +1072,7 @@ All endpoints under `/api`, JSON in/out, session-cookie authenticated unless not
 | GET | `/api/invites` | admin | List invites with derived status |
 | DELETE | `/api/invites/:id` | admin | Revoke pending invite |
 | POST | `/api/mods/refresh` | admin | Re-fetch mod list from FRM and bust SMM cache |
-| PUT | `/api/connection-details` | admin | Update join details; triggers mandatory DM broadcast to linked users |
+| PUT | `/api/connection-details` | admin | Update join details; optional `broadcast: true` sends DMs to active linked users (updater excluded) |
 | GET | `/api/discord/settings` | admin | Bot status, guild ID, role mappings, `autoApprove` |
 | PUT | `/api/discord/settings` | admin | Update guild ID, role mappings, `autoApprove` |
 | GET | `/api/discord/channels` | admin | Guild text channels for notification target picker |
@@ -1244,7 +1244,7 @@ JSON field names use **camelCase** in API responses; DB columns remain snake_cas
 | `PUT /api/account/notifications` | `{ "types"?: { "<message_type_key>": bool }, "dmPlayerPersonal"?: bool }` — omitted keys are left unchanged; unknown/`connection_*` keys ignored |
 | `POST /api/notification-targets` | `{ "name", "providerType": "discord", "config": { "channel_id", "thread_id?" }, "enabled": true }` |
 | `PUT /api/notification-targets/:id` | same fields, partial update allowed |
-| `PUT /api/connection-details` | `{ "gameHost", "gamePort", "gamePassword?", "notes?", "clearPassword?", "smmProfileName?" }` |
+| `PUT /api/connection-details` | `{ "gameHost", "gamePort", "gamePassword?", "notes?", "clearPassword?", "smmProfileName?", "broadcast?" }` — `broadcast: true` opts in to DM broadcast; updater's Discord ID is excluded |
 | `PUT /api/discord/settings` | `{ "guildId?", "autoApprove?", "roleMappings": { ... } }` per discord-bot-plan §10.2 |
 | `PUT /api/message-types/:key/enabled` | `{ "enabled": boolean }` |
 | `PUT /api/message-types/:key/template` | Partial `{ "plain"?: "...", "embed"?: { title, description, color, fields } }` — merge into the existing override; omitted variants are left unchanged (not a full replace; see §5.4, §7) |

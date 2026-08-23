@@ -33,7 +33,7 @@ Game join details separate from FRM monitoring:
 - SMM profile name for mod export
 - **Save download API** — host, port, and API token for downloading the latest autosave via the Dedicated Server HTTPS API (`DownloadSaveGame` only). Generate a token in the server console with `server.GenerateAPIToken`.
 
-When connection details change (here or via `/connection set`), all active linked players receive a DM.
+When connection details change (here or via `/connection set`), admins are prompted whether to broadcast a DM to active linked players. The admin who made the change does not receive the broadcast.
 
 Active users can download the latest autosave from the **Connection** dashboard page or Discord `/savegame` (rate-limited to once per five minutes per user).
 

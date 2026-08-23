@@ -71,7 +71,7 @@ func (s *Service) Get(ctx context.Context) (Details, error) {
 	return d, nil
 }
 
-// Set updates connection details and broadcasts DMs to active linked users.
+// Set updates connection details; broadcasts DMs only when input.Broadcast is true.
 func (s *Service) Set(ctx context.Context, input UpdateInput, updatedByUserID int64) (Details, error) {
 	old, err := s.Get(ctx)
 	if err != nil {
@@ -137,11 +137,22 @@ func (s *Service) Set(ctx context.Context, input UpdateInput, updatedByUserID in
 	}
 	merged.SMMProfileName = profileName
 
-	if s.SendDM != nil && len(ChangedFields(old, merged, input)) > 0 {
+	changed := ChangedFields(old, merged, input)
+	if s.SendDM != nil && len(changed) > 0 && input.Broadcast != nil && *input.Broadcast {
+		excludeExternalUserID := ""
+		if updatedByUserID > 0 {
+			var extID sql.NullString
+			if err := s.DB.QueryRowContext(ctx, `
+				SELECT external_user_id FROM users WHERE id = ?`, updatedByUserID,
+			).Scan(&extID); err == nil && extID.Valid {
+				excludeExternalUserID = strings.TrimSpace(extID.String)
+			}
+		}
 		oldCopy := old
 		newCopy := merged
+		exclude := excludeExternalUserID
 		go func() {
-			_ = s.BroadcastChange(context.Background(), oldCopy, newCopy)
+			_ = s.BroadcastChange(context.Background(), oldCopy, newCopy, exclude)
 		}()
 	}
 
@@ -196,8 +207,8 @@ func mergeDetails(old Details, input UpdateInput) Details {
 	return out
 }
 
-// BroadcastChange sends mandatory connection-detail DMs to all active linked users (§8.4).
-func (s *Service) BroadcastChange(ctx context.Context, old, new Details) error {
+// BroadcastChange sends connection-detail DMs to active linked users except excludeExternalUserID.
+func (s *Service) BroadcastChange(ctx context.Context, old, new Details, excludeExternalUserID string) error {
 	recipients, err := s.listActiveLinkedUsers(ctx)
 	if err != nil {
 		return err
@@ -208,8 +219,12 @@ func (s *Service) BroadcastChange(ctx context.Context, old, new Details) error {
 
 	msg := s.renderChangeMessage(ctx, old, new)
 	preview := dmLogPreview(msg)
+	excludeExternalUserID = strings.TrimSpace(excludeExternalUserID)
 
 	for i, extID := range recipients {
+		if excludeExternalUserID != "" && extID == excludeExternalUserID {
+			continue
+		}
 		sendErr := s.sendDirectWithRetry(ctx, extID, msg)
 		s.recordDMLog(ctx, messageTypeKey, extID, preview, sendErr == nil, sendErr)
 		if i < len(recipients)-1 {

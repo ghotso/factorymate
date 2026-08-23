@@ -4,6 +4,16 @@ import { useState } from "react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -44,6 +54,7 @@ export function ConnectionSettingsForm({
   )
   const [clearPassword, setClearPassword] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [broadcastDialogOpen, setBroadcastDialogOpen] = useState(false)
   const [gameApiSettings, setGameApiSettings] = useState(initialSettings)
   const [gameApiToken, setGameApiToken] = useState("")
   const [clearGameApiToken, setClearGameApiToken] = useState(false)
@@ -53,31 +64,73 @@ export function ConnectionSettingsForm({
     null
   )
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setIsSubmitting(true)
+  function hasConnectionChanges() {
+    const portNum = Number(gamePort)
+    const initialPort = initialDetails.gamePort ?? 0
+    const passwordTyped = gamePassword.trim() !== ""
+    const initialPassword = initialDetails.gamePassword ?? ""
+    return (
+      gameHost !== (initialDetails.gameHost ?? "") ||
+      portNum !== initialPort ||
+      notes !== (initialDetails.notes ?? "") ||
+      clearPassword ||
+      (passwordTyped && gamePassword !== initialPassword)
+    )
+  }
 
+  async function saveConnection(
+    broadcast?: boolean,
+    options?: { showSuccessToast?: boolean }
+  ) {
+    setIsSubmitting(true)
     try {
+      const body: Record<string, unknown> = {
+        gameHost,
+        gamePort: Number(gamePort),
+        gamePassword: gamePassword || undefined,
+        notes,
+        clearPassword,
+        smmProfileName: smmProfileName || undefined,
+      }
+      if (broadcast !== undefined) {
+        body.broadcast = broadcast
+      }
       const updated = await apiFetch<ConnectionDetails>("/connection-details", {
         method: "PUT",
-        body: JSON.stringify({
-          gameHost,
-          gamePort: Number(gamePort),
-          gamePassword: gamePassword || undefined,
-          notes,
-          clearPassword,
-          smmProfileName: smmProfileName || undefined,
-        }),
+        body: JSON.stringify(body),
       })
       setDetails(updated)
       setSmmProfileName(updated.smmProfileName ?? smmProfileName)
       setClearPassword(false)
-      toast.success(t("saved"))
+      if (options?.showSuccessToast !== false) {
+        toast.success(t("saved"))
+      }
     } catch {
       toast.error(tCommon("error"))
     } finally {
       setIsSubmitting(false)
+      setBroadcastDialogOpen(false)
     }
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!hasConnectionChanges()) {
+      await saveConnection(undefined, { showSuccessToast: false })
+      toast.info(t("noChangesSkipped"))
+      return
+    }
+
+    setBroadcastDialogOpen(true)
+  }
+
+  async function handleBroadcastConfirm() {
+    await saveConnection(true)
+  }
+
+  async function handleBroadcastSkip() {
+    await saveConnection(false)
   }
 
   async function handleSaveGameApi(event: React.FormEvent<HTMLFormElement>) {
@@ -228,6 +281,29 @@ export function ConnectionSettingsForm({
           </form>
         </CardContent>
       </Card>
+
+      <AlertDialog open={broadcastDialogOpen} onOpenChange={setBroadcastDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("broadcastTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("broadcastDescription")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isSubmitting}>{tCommon("cancel")}</AlertDialogCancel>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isSubmitting}
+              onClick={handleBroadcastSkip}
+            >
+              {t("broadcastSkip")}
+            </Button>
+            <AlertDialogAction disabled={isSubmitting} onClick={handleBroadcastConfirm}>
+              {t("broadcastConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Card>
         <CardHeader>

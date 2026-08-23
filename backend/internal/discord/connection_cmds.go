@@ -91,6 +91,8 @@ func (b *Bot) handleConnectionSet(ctx context.Context, s *discordgo.Session, i *
 	}
 
 	old, _ := b.connection.Get(ctx)
+	broadcastFalse := false
+	input.Broadcast = &broadcastFalse
 	details, err := b.connection.Set(ctx, input, adminID)
 	if err != nil {
 		respondEphemeral(ctx, s, i, "Failed to update connection details.")
@@ -99,7 +101,38 @@ func (b *Bot) handleConnectionSet(ctx context.Context, s *discordgo.Session, i *
 	}
 
 	fields := connection.ChangedFields(old, details, input)
+	if len(fields) == 0 {
+		respondEphemeral(ctx, s, i, "No connection fields changed — nothing to broadcast.")
+		_ = LogBotCommand(ctx, b.db, externalID, "connection set", true, "no changes")
+		return
+	}
+
+	if err := b.connection.SavePendingBroadcast(ctx, adminID, old, details); err != nil {
+		respondEphemeral(ctx, s, i, "Connection details updated, but could not prepare broadcast prompt.")
+		_ = LogBotCommand(ctx, b.db, externalID, "connection set", true, "pending broadcast save failed")
+		return
+	}
+
 	detail := "updated: " + strings.Join(fields, ", ")
-	respondEphemeral(ctx, s, i, fmt.Sprintf("Connection details updated and broadcast to active players.\nUpdated: %s", strings.Join(fields, ", ")))
+	adminIDStr := fmt.Sprintf("%d", adminID)
+	respondEphemeralWithComponents(ctx, s, i,
+		fmt.Sprintf("Connection details updated.\nUpdated: %s\n\nBroadcast to active linked players? You will not receive the broadcast DM.", strings.Join(fields, ", ")),
+		[]discordgo.MessageComponent{
+			discordgo.ActionsRow{
+				Components: []discordgo.MessageComponent{
+					discordgo.Button{
+						Label:    "Yes, broadcast",
+						Style:    discordgo.SuccessButton,
+						CustomID: btnConnBcastYes + adminIDStr,
+					},
+					discordgo.Button{
+						Label:    "No",
+						Style:    discordgo.SecondaryButton,
+						CustomID: btnConnBcastNo + adminIDStr,
+					},
+				},
+			},
+		},
+	)
 	_ = LogBotCommand(ctx, b.db, externalID, "connection set", true, detail)
 }

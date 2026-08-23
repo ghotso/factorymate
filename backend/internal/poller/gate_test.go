@@ -2,7 +2,6 @@ package poller_test
 
 import (
 	"context"
-	"encoding/json"
 	"net"
 	"testing"
 	"time"
@@ -99,15 +98,10 @@ func TestGate_TCPProbeTransitionsToRecovering(t *testing.T) {
 		t.Fatalf("init: %v", err)
 	}
 
-	details, _ := json.Marshal(map[string]any{
-		"gameHost": "127.0.0.1",
-		"gamePort": 17777,
-	})
 	if _, err := database.ExecContext(ctx, `
-		INSERT INTO app_setting_kv (key, value) VALUES (?, ?)
-		ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-		"connection.details_json", string(details)); err != nil {
-		t.Fatalf("seed connection details: %v", err)
+		UPDATE app_settings SET game_api_host = '127.0.0.1', game_api_port = 17777 WHERE id = 1`,
+	); err != nil {
+		t.Fatalf("seed game API settings: %v", err)
 	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:17777")
@@ -143,7 +137,7 @@ func TestGate_TCPProbeTransitionsToRecovering(t *testing.T) {
 	}
 }
 
-func TestGate_MissingConnectionDetailsStaysDown(t *testing.T) {
+func TestGate_MissingGameAPISettingsStaysDown(t *testing.T) {
 	t.Chdir("../..")
 	ctx := context.Background()
 	database := openTestDB(t)
@@ -159,7 +153,7 @@ func TestGate_MissingConnectionDetailsStaysDown(t *testing.T) {
 	gate.SetPhase(poller.PhaseDown)
 	gate.RunDownCycle(ctx)
 	if gate.Phase() != poller.PhaseDown {
-		t.Fatalf("phase = %q, want down when connection details missing", gate.Phase())
+		t.Fatalf("phase = %q, want down when game API settings missing", gate.Phase())
 	}
 }
 

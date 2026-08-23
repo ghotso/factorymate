@@ -19,4 +19,5 @@ type UpdateInput struct {
 	Notes          *string `json:"notes"`
 	SMMProfileName *string `json:"smmProfileName"`
 	ClearPassword  bool    `json:"clearPassword"`
+	Broadcast      *bool   `json:"broadcast"` // explicit opt-in when true
 }

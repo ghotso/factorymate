@@ -20,6 +20,8 @@ const (
 	modalRejectReason = "modal_reject:"
 	btnRegApprove     = "btn_reg_approve:"
 	btnRegReject      = "btn_reg_reject:"
+	btnConnBcastYes   = "conn_bcast_yes:"
+	btnConnBcastNo    = "conn_bcast_no:"
 )
 
 type deferredInteractionKey struct{}
@@ -422,6 +424,10 @@ func (b *Bot) handleMessageComponent(ctx context.Context, s *discordgo.Session, 
 		b.handleApproveButton(ctx, s, i, customID, externalID)
 	case strings.HasPrefix(customID, btnRegReject):
 		b.handleRejectButton(ctx, s, i, customID, externalID)
+	case strings.HasPrefix(customID, btnConnBcastYes):
+		b.handleConnectionBroadcastYes(ctx, s, i, customID, externalID)
+	case strings.HasPrefix(customID, btnConnBcastNo):
+		b.handleConnectionBroadcastNo(ctx, s, i, customID, externalID)
 	default:
 		respondEphemeral(ctx, s, i, "Unknown button.")
 	}
@@ -519,6 +525,65 @@ func (b *Bot) handleRejectButton(ctx context.Context, s *discordgo.Session, i *d
 		log.Printf("discord bot: reject modal: %v", err)
 	}
 	_ = LogBotCommand(ctx, b.db, externalID, "registration reject", true, "modal opened")
+}
+
+func (b *Bot) handleConnectionBroadcastYes(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, customID, externalID string) {
+	adminUserID, err := parseUserIDFromCustomID(customID, btnConnBcastYes)
+	if err != nil {
+		respondEphemeral(ctx, s, i, "Invalid broadcast request.")
+		return
+	}
+
+	adminUser, err := b.registration.GetByExternal(ctx, registration.PlatformDiscord, externalID)
+	if err != nil || adminUser == nil || adminUser.Role != auth.RoleAdmin {
+		respondEphemeral(ctx, s, i, "Only admins can broadcast connection details.")
+		return
+	}
+	if adminUser.ID != adminUserID {
+		respondEphemeral(ctx, s, i, "This broadcast prompt belongs to another admin.")
+		return
+	}
+
+	old, new, ok, err := b.connection.LoadPendingBroadcast(ctx, adminUserID)
+	if err != nil {
+		respondEphemeral(ctx, s, i, "Could not load pending broadcast.")
+		return
+	}
+	if !ok {
+		respondEphemeral(ctx, s, i, "Broadcast prompt expired — update connection details again.")
+		return
+	}
+
+	if err := b.connection.BroadcastChange(ctx, old, new, externalID); err != nil {
+		respondEphemeral(ctx, s, i, "Could not broadcast connection details.")
+		_ = LogBotCommand(ctx, b.db, externalID, "connection broadcast", false, err.Error())
+		return
+	}
+	_ = b.connection.DeletePendingBroadcast(ctx, adminUserID)
+	respondEphemeral(ctx, s, i, "Connection details broadcast to active linked players.")
+	_ = LogBotCommand(ctx, b.db, externalID, "connection broadcast", true, "yes")
+}
+
+func (b *Bot) handleConnectionBroadcastNo(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, customID, externalID string) {
+	adminUserID, err := parseUserIDFromCustomID(customID, btnConnBcastNo)
+	if err != nil {
+		respondEphemeral(ctx, s, i, "Invalid broadcast request.")
+		return
+	}
+
+	adminUser, err := b.registration.GetByExternal(ctx, registration.PlatformDiscord, externalID)
+	if err != nil || adminUser == nil || adminUser.Role != auth.RoleAdmin {
+		respondEphemeral(ctx, s, i, "Only admins can dismiss broadcast prompts.")
+		return
+	}
+	if adminUser.ID != adminUserID {
+		respondEphemeral(ctx, s, i, "This broadcast prompt belongs to another admin.")
+		return
+	}
+
+	_ = b.connection.DeletePendingBroadcast(ctx, adminUserID)
+	respondEphemeral(ctx, s, i, "Saved without broadcasting.")
+	_ = LogBotCommand(ctx, b.db, externalID, "connection broadcast", true, "no")
 }
 
 func (b *Bot) submitRejectModal(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, customID, externalID string) {

@@ -3,7 +3,6 @@ package poller
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -13,9 +12,9 @@ import (
 )
 
 const (
-	tcpProbeInterval   = 5 * time.Second
-	tcpProbeTimeout    = 3 * time.Second
-	connectionDetailsKey = "connection.details_json"
+	tcpProbeInterval = 5 * time.Second
+	tcpProbeTimeout  = 3 * time.Second
+	defaultGameAPIPort = 7777
 )
 
 // RecoveryPhase is the poller gate state for FRM safe reconnect (§4.2).
@@ -134,12 +133,12 @@ func (g *Gate) OnRecoveryProbeFailure(ctx context.Context) error {
 	return upsertRecoveryPhase(ctx, g.db, PhaseDown, g.now())
 }
 
-// RunDownCycle probes the game server TCP port from connection details.
+// RunDownCycle probes the game server TCP port from Save download API settings.
 // On success, transitions to RECOVERING and starts the grace timer.
 func (g *Gate) RunDownCycle(ctx context.Context) time.Duration {
 	host, port, ok := g.loadConnectionTarget(ctx)
 	if !ok {
-		g.logf("poller gate: connection details not configured; cannot TCP probe for recovery")
+		g.logf("poller gate: game API host not configured; cannot TCP probe for recovery")
 		return tcpProbeInterval
 	}
 
@@ -190,33 +189,24 @@ func (g *Gate) loadGraceSeconds(ctx context.Context) (int, error) {
 	return sec, nil
 }
 
-type connectionTargetJSON struct {
-	GameHost string `json:"gameHost"`
-	GamePort int    `json:"gamePort"`
-}
-
 func (g *Gate) loadConnectionTarget(ctx context.Context) (host string, port int, ok bool) {
-	var raw string
+	var apiHost string
+	var apiPort int
 	err := g.db.QueryRowContext(ctx, `
-		SELECT value FROM app_setting_kv WHERE key = ?`, connectionDetailsKey,
-	).Scan(&raw)
-	if err == sql.ErrNoRows || strings.TrimSpace(raw) == "" || raw == "{}" {
-		return "", 0, false
-	}
+		SELECT game_api_host, game_api_port FROM app_settings WHERE id = 1`,
+	).Scan(&apiHost, &apiPort)
 	if err != nil {
-		g.logf("poller gate: load connection details: %v", err)
+		g.logf("poller gate: load game API settings: %v", err)
 		return "", 0, false
 	}
-	var d connectionTargetJSON
-	if err := json.Unmarshal([]byte(raw), &d); err != nil {
-		g.logf("poller gate: parse connection details: %v", err)
+	host = strings.TrimSpace(apiHost)
+	if host == "" {
 		return "", 0, false
 	}
-	host = strings.TrimSpace(d.GameHost)
-	if host == "" || d.GamePort <= 0 {
-		return "", 0, false
+	if apiPort <= 0 {
+		apiPort = defaultGameAPIPort
 	}
-	return host, d.GamePort, true
+	return host, apiPort, true
 }
 
 func (g *Gate) probeTCP(ctx context.Context, host string, port int) bool {
