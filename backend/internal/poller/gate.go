@@ -133,12 +133,12 @@ func (g *Gate) OnRecoveryProbeFailure(ctx context.Context) error {
 	return upsertRecoveryPhase(ctx, g.db, PhaseDown, g.now())
 }
 
-// RunDownCycle probes the game server TCP port from Save download API settings.
+// RunDownCycle probes the game server TCP port from internal game server connection settings.
 // On success, transitions to RECOVERING and starts the grace timer.
 func (g *Gate) RunDownCycle(ctx context.Context) time.Duration {
 	host, port, ok := g.loadConnectionTarget(ctx)
 	if !ok {
-		g.logf("poller gate: game API host not configured; cannot TCP probe for recovery")
+		g.logf("poller gate: internal game server host not configured; cannot TCP probe for recovery")
 		return tcpProbeInterval
 	}
 

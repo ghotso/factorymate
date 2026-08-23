@@ -22,6 +22,16 @@ Go to **Settings → General**.
 
 If FRM is unreachable, the poller logs errors and the dashboard stays empty until host/port are correct.
 
+## 2b. Configure internal game server connection
+
+Go to **Settings → Connection → Internal game server connection**.
+
+1. Set **internal host** and **port** to an address the FactoryMate container can reach (LAN IP, Docker service name, or `host.docker.internal` on Docker Desktop — not your public player join hostname).
+2. In the dedicated server console, run `server.GenerateAPIToken` and paste the token into FactoryMate.
+3. Click **Test connection** to confirm reachability.
+
+This is required for FactoryMate to detect server restarts, resume FRM polling safely, and enable autosave downloads.
+
 ## 3. Configure the Discord bot
 
 Ensure `DISCORD_BOT_TOKEN` is set in `.env` and the container has been restarted.
@@ -63,7 +73,8 @@ Optional break-glass recovery: **Settings → Users → Advanced** — create a 
 
 ## 7. Optional: connection details and mod list
 
-- **Settings → Connection** — set game join host, port, and optional client password. Players can retrieve these with `/connection` in Discord.
+- **Settings → Connection → Join details** — public game host, port, and optional client password for players. Retrieve with `/connection` in Discord.
+- **Settings → Connection → Internal game server connection** — should already be set in step 2b; required for restart recovery and save downloads.
 - **`/mods`** in Discord or **`/mods`** on the web — view installed mods and export an SMM profile.
 
 ## Smoke checks

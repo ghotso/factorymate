@@ -309,6 +309,7 @@ export function ConnectionSettingsForm({
         <CardHeader>
           <CardTitle>{t("gameApi.title")}</CardTitle>
           <CardDescription>{t("gameApi.description")}</CardDescription>
+          <p className="text-sm text-muted-foreground">{t("gameApi.purpose")}</p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSaveGameApi}>

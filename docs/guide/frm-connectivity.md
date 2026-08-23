@@ -82,7 +82,34 @@ docker compose logs -f factorymate
 
 If FRM is unreachable, the poller logs errors until settings are corrected. You may receive a `server_offline` Discord notification once configured.
 
-**Automatic recovery after restarts:** Configure **Settings → Connection → Save download API** (host and port). When the game server restarts, FactoryMate stops FRM HTTP polling, TCP-probes that local endpoint, waits the configured grace period (Settings → General → FRM recovery grace), then resumes FRM polling. The overview dashboard shows **Offline** while down and **Recovering** during the grace window.
+**Automatic recovery after restarts:** Configure **Settings → Connection → Internal game server connection** (host and port). Use an address the FactoryMate container can reach (LAN IP or Docker service name — not the public player join hostname). When the game server restarts, FactoryMate stops FRM HTTP polling, TCP-probes that endpoint, waits the configured grace period (Settings → General → FRM recovery grace), then resumes FRM polling. The overview dashboard shows **Offline** while down and **Recovering** during the grace window.
+
+## Internal game server connection
+
+FactoryMate needs a **local/internal** path to your dedicated server (HTTPS API on port `7777` by default), separate from the player join host in connection details.
+
+Configure in **Settings → Connection → Internal game server connection**:
+
+| Field | Example | Notes |
+| --- | --- | --- |
+| Internal host | `192.168.1.50` or `satisfactory-server` | Must resolve from the FactoryMate container |
+| Internal port | `7777` | Dedicated Server HTTPS API port |
+| API token | *(from server console)* | Required for save downloads; see below |
+
+**Generate an API token** in the dedicated server console:
+
+```text
+server.GenerateAPIToken
+```
+
+Copy the token into Settings → Connection. FactoryMate stores it server-side and never returns it in API responses.
+
+This connection is used for:
+
+- TCP probing during FRM safe reconnect after server restarts
+- Player autosave downloads (`/connection` page and Discord `/savegame`)
+
+Without it, FactoryMate cannot safely resume monitoring after restarts and save download will not work.
 
 ## FRM auth token
 

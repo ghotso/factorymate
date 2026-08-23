@@ -68,7 +68,7 @@
     "savegame": {
       "title": "Download save",
       "description": "Download the latest autosave of the currently running session for offline backup or single-player use.",
-      "notConfigured": "Save download is not configured yet. Ask an admin to set up the dedicated server API in Settings → Connection.",
+      "notConfigured": "Save download is not available yet. Ask an admin to configure the internal game server connection in Settings → Connection.",
       "session": "Session",
       "save": "Save file",
       "savedAt": "Saved at (server time)",
@@ -643,21 +643,22 @@
         "smmProfileNameHint": "Used as the profile name when players download the SMM profile from /mods."
       },
       "gameApi": {
-        "title": "Save download API",
-        "description": "Dedicated Server HTTPS API credentials used to download the latest autosave. Generate a token with server.GenerateAPIToken in the server console.",
-        "saved": "Save download API settings saved.",
-        "testButton": "Test API",
-        "testOk": "Dedicated server API connection successful.",
-        "testFailed": "Could not reach the dedicated server API.",
+        "title": "Internal game server connection",
+        "description": "How FactoryMate reaches your Satisfactory dedicated server from its own network — not the public join address players use.",
+        "purpose": "Required for FactoryMate to work properly: detects server restarts and resumes FRM polling safely, and enables autosave downloads for players. Use a hostname or IP the FactoryMate container can resolve (LAN IP, Docker service name, or host.docker.internal).",
+        "saved": "Internal game server connection saved.",
+        "testButton": "Test connection",
+        "testOk": "Internal game server connection successful.",
+        "testFailed": "Could not reach the game server on this host and port.",
         "testResult": "Active session: {session} — latest autosave: {save}",
         "fields": {
-          "host": "API host",
-          "hostPlaceholder": "192.168.1.50",
-          "port": "API port",
+          "host": "Internal host",
+          "hostPlaceholder": "192.168.1.50 or satisfactory-server",
+          "port": "Internal port",
           "token": "API token",
           "tokenPlaceholder": "Paste API token",
           "tokenConfiguredPlaceholder": "Leave blank to keep existing token",
-          "tokenHint": "Token is stored server-side and never shown again after saving.",
+          "tokenHint": "Generate a token in the dedicated server console with server.GenerateAPIToken, then paste it here. The token is stored server-side and never shown again after saving.",
           "clearToken": "Clear stored API token"
         }
       }

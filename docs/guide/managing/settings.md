@@ -28,10 +28,10 @@ See [Discord configuration](../discord/configuration.md).
 
 Game join details separate from FRM monitoring:
 
-- Join host and port
+- Join host and port (public address players use to connect)
 - Optional client password
 - SMM profile name for mod export
-- **Save download API** — host, port, and API token for downloading the latest autosave via the Dedicated Server HTTPS API (`DownloadSaveGame` only). Generate a token in the server console with `server.GenerateAPIToken`.
+- **Internal game server connection** — host, port, and API token for FactoryMate’s local access to the dedicated server (restart recovery, FRM safe reconnect, and autosave downloads). Use a hostname or IP the FactoryMate container can resolve — not the public join DNS. Generate an API token in the dedicated server console with `server.GenerateAPIToken`.
 
 When connection details change (here or via `/connection set`), admins are prompted whether to broadcast a DM to active linked players. The admin who made the change does not receive the broadcast.
 
