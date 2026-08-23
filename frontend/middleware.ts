@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server"
 
 import { apiUrl, isSetupRequired } from "@/lib/api"
 
-const PUBLIC_PATHS = ["/login", "/setup", "/invite"]
+const PUBLIC_PATHS = ["/login", "/setup", "/invite", "/register"]
 const PENDING_ALLOWED_PATHS = ["/awaiting-approval"]
 const SESSION_COOKIE = "factorymate_session"
 
@@ -75,7 +75,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL("/login", request.url))
     }
 
-    if (pathname.startsWith("/invite")) {
+    if (pathname.startsWith("/invite") || pathname.startsWith("/register")) {
       return NextResponse.next()
     }
 

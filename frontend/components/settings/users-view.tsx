@@ -148,10 +148,16 @@ export function UsersView({
   const [unlinkUser, setUnlinkUser] = useState<AppUser | null>(null)
 
   const roster = useMemo<RosterRow[]>(() => {
-    const inviteRows: RosterRow[] = invites.map((invite) => ({
-      kind: "invite",
-      invite,
-    }))
+    const userIds = new Set(users.map((user) => user.id))
+    const inviteRows: RosterRow[] = invites
+      .filter(
+        (invite) =>
+          !invite.acceptedByUserId || !userIds.has(invite.acceptedByUserId)
+      )
+      .map((invite) => ({
+        kind: "invite",
+        invite,
+      }))
     const userRows: RosterRow[] = users.map((user) => ({
       kind: "user",
       user,
