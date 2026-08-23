@@ -1,5 +1,6 @@
 import { PowerView } from "@/components/power/power-view"
 import { buildDateRangeQuery, presetToDateRange } from "@/lib/date-range"
+import { filterVisibleCircuits } from "@/lib/power"
 import { serverApiFetch } from "@/lib/api-server"
 import type {
   PaginatedResponse,
@@ -10,7 +11,8 @@ import type {
 
 export default async function PowerPage() {
   const powerData = await serverApiFetch<PowerResponse>("/power")
-  const firstCircuit = powerData.circuits[0]?.circuitId
+  const visibleCircuits = filterVisibleCircuits(powerData.circuits)
+  const firstCircuit = visibleCircuits[0]?.circuitId ?? null
   const rangeQuery = buildDateRangeQuery(presetToDateRange("7d"))
 
   const [historyData, metricsData] = await Promise.all([
@@ -29,6 +31,7 @@ export default async function PowerPage() {
       initialPower={powerData}
       initialHistory={historyData.items}
       initialMetrics={metricsData.items}
+      initialSelectedCircuitId={firstCircuit}
     />
   )
 }

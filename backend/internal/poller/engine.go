@@ -212,7 +212,9 @@ func (e *Engine) processPlayers(ctx context.Context, players []frm.Player, serve
 
 func (e *Engine) processCircuits(ctx context.Context, circuits []frm.Circuit, serverName string, now time.Time) ([]Event, error) {
 	var events []Event
+	seenIDs := make([]int, 0, len(circuits))
 	for _, c := range circuits {
+		seenIDs = append(seenIDs, c.CircuitGroupID)
 		prev, err := loadCircuitState(ctx, e.DB, c.CircuitGroupID)
 		if err != nil {
 			return nil, err
@@ -246,6 +248,9 @@ func (e *Engine) processCircuits(ctx context.Context, circuits []frm.Circuit, se
 		if err := upsertCircuitState(ctx, e.DB, c, now); err != nil {
 			return nil, err
 		}
+	}
+	if err := deleteCircuitsNotInResponse(ctx, e.DB, seenIDs); err != nil {
+		return nil, err
 	}
 	return events, nil
 }

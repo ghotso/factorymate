@@ -205,6 +205,63 @@ func TestResearchTreePrunesStaleNodes(t *testing.T) {
 	}
 }
 
+func TestCircuitPrunesStaleRows(t *testing.T) {
+	t.Chdir("../..")
+
+	ctx := context.Background()
+	database := openTestDB(t)
+	defer database.Close()
+
+	if err := db.Init(ctx, database, db.SeedConfig{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	phases, err := poller.LoadElevatorPhases("data/elevator_phases.json")
+	if err != nil {
+		t.Fatalf("load phases: %v", err)
+	}
+
+	engine := &poller.Engine{DB: database, ElevatorPhases: phases}
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+
+	firstPoll := frm.FastPollResult{
+		Power: []frm.Circuit{
+			{CircuitGroupID: 0, FuseTriggered: false, PowerCapacity: 420},
+			{CircuitGroupID: 1, FuseTriggered: false, PowerCapacity: 100},
+			{CircuitGroupID: 5, FuseTriggered: false, PowerCapacity: 50},
+			{CircuitGroupID: 6, FuseTriggered: false, PowerCapacity: 50},
+		},
+	}
+	if _, err := engine.PollOnce(ctx, firstPoll, now); err != nil {
+		t.Fatalf("first PollOnce: %v", err)
+	}
+	assertCircuitCount(t, ctx, database, 4)
+
+	secondPoll := frm.FastPollResult{
+		Power: []frm.Circuit{
+			{CircuitGroupID: 0, FuseTriggered: false, PowerCapacity: 420},
+			{CircuitGroupID: 1, FuseTriggered: true, PowerCapacity: 100},
+			{CircuitGroupID: 2, FuseTriggered: false, PowerCapacity: 80},
+			{CircuitGroupID: 3, FuseTriggered: false, PowerCapacity: 60},
+			{CircuitGroupID: 4, FuseTriggered: false, PowerCapacity: 40},
+		},
+	}
+	if _, err := engine.PollOnce(ctx, secondPoll, now.Add(time.Minute)); err != nil {
+		t.Fatalf("second PollOnce: %v", err)
+	}
+	assertCircuitCount(t, ctx, database, 5)
+
+	var staleCount int
+	if err := database.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM circuit_state WHERE circuit_id IN (5, 6)`,
+	).Scan(&staleCount); err != nil {
+		t.Fatalf("count stale: %v", err)
+	}
+	if staleCount != 0 {
+		t.Fatalf("expected stale circuits removed, found %d", staleCount)
+	}
+}
+
 func TestElevatorPhaseLookup(t *testing.T) {
 	phases, err := poller.LoadElevatorPhases("../../data/elevator_phases.json")
 	if err != nil {
@@ -663,6 +720,17 @@ func assertPlayerBaseline(t *testing.T, ctx context.Context, database *sql.DB, i
 	}
 	if online != wantOnline {
 		t.Fatalf("player %s online = %v, want %v", id, online, wantOnline)
+	}
+}
+
+func assertCircuitCount(t *testing.T, ctx context.Context, database *sql.DB, want int) {
+	t.Helper()
+	var count int
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM circuit_state`).Scan(&count); err != nil {
+		t.Fatalf("count circuit_state: %v", err)
+	}
+	if count != want {
+		t.Fatalf("circuit_state count = %d, want %d", count, want)
 	}
 }
 

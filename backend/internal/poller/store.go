@@ -246,6 +246,24 @@ func upsertCircuitState(ctx context.Context, db *sql.DB, c frm.Circuit, now time
 	return err
 }
 
+func deleteCircuitsNotInResponse(ctx context.Context, db *sql.DB, keepIDs []int) error {
+	if len(keepIDs) == 0 {
+		_, err := db.ExecContext(ctx, `DELETE FROM circuit_state`)
+		return err
+	}
+
+	placeholders := make([]string, len(keepIDs))
+	args := make([]any, 0, len(keepIDs))
+	for i, id := range keepIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	query := `DELETE FROM circuit_state WHERE circuit_id NOT IN (` +
+		strings.Join(placeholders, ",") + `)`
+	_, err := db.ExecContext(ctx, query, args...)
+	return err
+}
+
 func insertPowerCircuitEvent(ctx context.Context, db *sql.DB, circuitID int, eventType string, now time.Time) error {
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO power_circuit_events (circuit_id, event_type, occurred_at)

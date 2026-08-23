@@ -8,15 +8,8 @@ import { IntervalPicker } from "@/components/interval-picker"
 import { TimeSeriesChart } from "@/components/time-series-chart"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -34,6 +27,7 @@ import {
 } from "@/lib/date-range"
 import { useFormatDateTime } from "@/hooks/use-format-datetime"
 import { formatMw, formatNumber, formatPercent } from "@/lib/format"
+import { filterVisibleCircuits } from "@/lib/power"
 import type {
   Circuit,
   PowerHistoryEvent,
@@ -46,6 +40,7 @@ type PowerViewProps = {
   initialPower: PowerResponse
   initialHistory: PowerHistoryEvent[]
   initialMetrics: PowerMetricsResponse["items"]
+  initialSelectedCircuitId: number | null
 }
 
 const chartConfig = {
@@ -58,14 +53,18 @@ export function PowerView({
   initialPower,
   initialHistory,
   initialMetrics,
+  initialSelectedCircuitId,
 }: PowerViewProps) {
   const t = useTranslations("power")
   const tCharts = useTranslations("charts")
   const { formatDateTime } = useFormatDateTime()
-  const [circuits] = useState(initialPower.circuits)
+  const visibleCircuits = useMemo(
+    () => filterVisibleCircuits(initialPower.circuits),
+    [initialPower.circuits]
+  )
   const [history] = useState(initialHistory)
-  const [selectedCircuit, setSelectedCircuit] = useState<string>(
-    () => String(initialPower.circuits[0]?.circuitId ?? "")
+  const [selectedCircuit, setSelectedCircuit] = useState<string>(() =>
+    initialSelectedCircuitId != null ? String(initialSelectedCircuitId) : ""
   )
   const [interval, setInterval] = useState<DateRangePreset>("7d")
   const [metrics, setMetrics] = useState<PowerMetricsResponse["items"]>(
@@ -97,10 +96,8 @@ export function PowerView({
     []
   )
 
-  const handleCircuitChange = (circuit: string | null) => {
-    if (!circuit) {
-      return
-    }
+  const handleCircuitSelect = (circuitId: number) => {
+    const circuit = String(circuitId)
     setSelectedCircuit(circuit)
     void loadMetrics(circuit, interval)
   }
@@ -121,7 +118,8 @@ export function PowerView({
     [metrics]
   )
 
-  const trippedCircuits = circuits.filter((circuit) => circuit.tripped)
+  const trippedCircuits = visibleCircuits.filter((circuit) => circuit.tripped)
+  const selectedCircuitId = selectedCircuit ? Number(selectedCircuit) : null
 
   return (
     <div className="flex flex-1 flex-col gap-6 p-4 md:p-6">
@@ -147,7 +145,7 @@ export function PowerView({
           <CardTitle>{t("circuitsTitle")}</CardTitle>
         </CardHeader>
         <CardContent>
-          {circuits.length === 0 ? (
+          {visibleCircuits.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t("empty")}</p>
           ) : (
             <Table>
@@ -162,8 +160,14 @@ export function PowerView({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {circuits.map((circuit) => (
-                  <CircuitRow key={circuit.circuitId} circuit={circuit} t={t} />
+                {visibleCircuits.map((circuit) => (
+                  <CircuitRow
+                    key={circuit.circuitId}
+                    circuit={circuit}
+                    selected={circuit.circuitId === selectedCircuitId}
+                    onSelect={handleCircuitSelect}
+                    t={t}
+                  />
                 ))}
               </TableBody>
             </Table>
@@ -173,25 +177,20 @@ export function PowerView({
 
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-4">
-          <CardTitle>{t("chartTitle")}</CardTitle>
-          <div className="flex flex-wrap items-center gap-2">
-            <Select value={selectedCircuit} onValueChange={handleCircuitChange}>
-              <SelectTrigger className="w-[140px]" size="sm" aria-label={t("circuitFilter")}>
-                <SelectValue placeholder={t("circuitFilter")} />
-              </SelectTrigger>
-              <SelectContent>
-                {circuits.map((circuit) => (
-                  <SelectItem key={circuit.circuitId} value={String(circuit.circuitId)}>
-                    {t("circuitLabel", { id: circuit.circuitId })}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <IntervalPicker value={interval} onChange={handleIntervalChange} />
+          <div className="space-y-1">
+            <CardTitle>{t("chartTitle")}</CardTitle>
+            {selectedCircuitId != null ? (
+              <CardDescription>
+                {t("chartSubtitle", { id: selectedCircuitId })}
+              </CardDescription>
+            ) : null}
           </div>
+          <IntervalPicker value={interval} onChange={handleIntervalChange} />
         </CardHeader>
         <CardContent>
-          {loadingChart ? (
+          {selectedCircuit === "" ? (
+            <p className="text-sm text-muted-foreground">{t("chartSelectPrompt")}</p>
+          ) : loadingChart ? (
             <p className="text-sm text-muted-foreground">{tCharts("loading")}</p>
           ) : chartData.length === 0 ? (
             <p className="text-sm text-muted-foreground">{tCharts("noData")}</p>
@@ -257,9 +256,13 @@ export function PowerView({
 
 function CircuitRow({
   circuit,
+  selected,
+  onSelect,
   t,
 }: {
   circuit: Circuit
+  selected: boolean
+  onSelect: (circuitId: number) => void
   t: ReturnType<typeof useTranslations<"power">>
 }) {
   const capacityUsed =
@@ -268,7 +271,12 @@ function CircuitRow({
       : null
 
   return (
-    <TableRow>
+    <TableRow
+      className="cursor-pointer"
+      data-state={selected ? "selected" : undefined}
+      onClick={() => onSelect(circuit.circuitId)}
+      aria-label={t("selectCircuitRow", { id: circuit.circuitId })}
+    >
       <TableCell className="font-medium">
         {t("circuitLabel", { id: circuit.circuitId })}
       </TableCell>
