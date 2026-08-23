@@ -1,108 +1,273 @@
-# Proposal: Exploration map (world + progression overlay)
+# Proposal: Exploration map (world map + collectibles)
 
 **Status:** draft — investigation only, not on roadmap  
-**Related:** spec §3 (`schematic_state`, `research_node_state`), §4.1 (FRM polling), §7/§8 (`/milestones`, `/research`), `docs/frm-docs/.../getDropPod.adoc`, `getArtifacts.adoc`, `getPowerSlug.adoc`, `getMapMarkers.adoc`; existing `frontend/components/research/research-tree-canvas.tsx`; `docs/proposals/savegame-download.md` (optional save-parse path)
+**Related:** spec §4.1 (FRM polling), `docs/frm-docs/.../getDropPod.adoc`, `getArtifacts.adoc`, `getPowerSlug.adoc`, `getMapMarkers.adoc`; `assets/map/` (FModel basemap tiles); `docs/proposals/savegame-download.md` (optional save-parse validation)
 
-FactoryMate already tracks **what** the group has unlocked (milestones, hard-drive recipe choices, M.A.M. nodes) but not **where** collectibles live on the Satisfactory world map. This proposal describes a satisfactory map view that answers:
+FactoryMate does not yet show **where** world collectibles are on the Satisfactory map. This proposal covers a world-map view that answers:
 
-- Which **crash sites / hard drives** are looted vs still out there?
-- Which **M.A.M. nodes** are purchased vs available (and later: not yet reachable)?
+- Which **crash sites / hard drives** has the save found, opened, or looted?
+- Which sites are **still out there** (static catalog vs live FRM state)?
 - (Later) Somersloops, Mercer spheres, power slugs, and player map markers.
 
----
-
-## 1. Two different “maps” (do not conflate)
-
-| Concept | What it shows | Data today | UI today |
-| --- | --- | --- | --- |
-| **World map** | Geographic positions on the Satisfactory map (x/y in Unreal cm) | **Not polled** — FRM has endpoints but FactoryMate ignores them | **None** |
-| **M.A.M. research tree** | Logical grid of research nodes (Coordinates are UI slots, not world position) | Fast poll → `research_node_state` | `/research` with `ResearchTreeCanvas` — purchased / available / hidden styling |
-
-Players often say “map” for the world view (crash sites) and “tree” for M.A.M. This feature is primarily the **world map**, with **tight links** to `/milestones` and `/research` for recipe context.
-
-**Recommendation:** Ship one nav entry (`/exploration` or `/map`) for the world view. Keep `/research` as the M.A.M. tree (already good). Cross-link: clicking a looted crash site could jump to the Hard Drive tab if a schematic is `hard_drive_ready`.
+**Out of scope:** M.A.M. research trees, milestone schematics, and hard-drive **recipe** choices — those stay on `/research` and `/milestones`. This page is geographic only.
 
 ---
 
-## 2. What “satisfactory” means for v1
+## 1. Hard drives (crash sites)
 
-### 2.1 Hard drives (crash sites)
-
-In Satisfactory, a **physical** hard drive comes from a **crash site drop pod**. After collection, the player spends drives in the M.A.M. to unlock **alternate recipes** (`schematic_state` rows with `type = "Hard Drive"`).
+A **physical** hard drive comes from a **crash-site drop pod** in the world.
 
 | Layer | Meaning | FactoryMate source |
 | --- | --- | --- |
-| **World pickup** | Pod opened/looted at (x, y, z) | FRM `GET /getDropPod` → new `drop_pod_state` table |
-| **MAM choice** | Recipe selected (or waiting to select) | Already in `schematic_state` via fast poll `getSchematics` |
-| **Not yet found** | Sites the save has never looted | **Static catalog** (see §4) — FRM does not list absent pods |
+| **World pickup** | Pod at (x, y, z) — opened / looted state | FRM `GET /getDropPod` → new `drop_pod_state` table |
+| **Collected, not yet analyzed** | Physical `Desc_HardDrive_C` in cloud/storage (picked up, M.A.M. scan pending) | FRM `GET /getCloudInv`, `GET /getStorageInv` — **observe first** (see §1.1) |
+| **Not yet in save** | Sites never scanned or not yet present in FRM | **Static catalog** (~118 world positions) — see §3.3 |
 
-**Live verification (group server, 2026-08-23):**
+### 1.1 FRM observation baseline (group server)
 
-- `getDropPod`: **20** pods returned — 2 looted, 18 not looted (mix of `Opened` true/false).
-- `getSchematics` with `Type == "Hard Drive"`: **110** schematic rows (individual alternate unlocks / states), separate from pod count.
-- Wiki / community maps reference **~118** crash sites in 1.0 — so FRM’s 20 pods is almost certainly **not** the full static set (likely only discovered/simulated pods, or save progression). **Do not assume `getDropPod` alone can drive “remaining” counts.**
+**Purpose:** Record how FRM exposes hard-drive state before building the map. The group will collect more drives and analyze them in M.A.M. today — re-capture after that and note what changed.
 
-Marker states to show on the world map:
+**Snapshot: 2026-08-23 ~09:06 CEST** (`http://192.168.178.42:8889`, read-only GET)
 
-| State | Condition | Visual (suggested) |
+| Signal | Endpoint | Value | Notes |
+| --- | --- | --- | --- |
+| Drives in cloud / depot | `getCloudInv` | **18** × `Desc_HardDrive_C` | Collected items, not yet spent in M.A.M. (group estimate: most HDs are here unanalyzed) |
+| Drives in world aggregate | `getWorldInv` | **1** | May overlap with storage |
+| Drives in storage | `getStorageInv` | **1** (Personal Storage Box) | |
+| Drives on players | `getPlayer` | **0** | |
+| Drop pods in save | `getDropPod` | **20** total | Pods FRM knows about in this save |
+| Pods looted (`Looted: true`) | `getDropPod` | **2** | `BP_DropPod15_821`, `BP_DropPod18` |
+| Pods sealed (`Opened: false`) | `getDropPod` | **18** | |
+| Pods opened, not looted | `getDropPod` | **0** | |
+| Purchased alternate recipes | `getSchematics` (`Type: Alternate`, `Purchased: true`) | **6** | Prior M.A.M. spends (not from today’s batch) |
+| Hard Drive schematic rows | `getSchematics` (`Type: Hard Drive`) | **1** | Generic `Research_HardDrive_0_C` slot; `Cost` shows `Hard Drive` remaining **1/1** |
+
+**Key discrepancy (why we must observe, not assume):**
+
+- **~18 drives in inventory** but only **2 pods marked `Looted`** in `getDropPod`.
+- Group reports drives were **collected** but **not yet analyzed in M.A.M.** — FRM does not surface “unanalyzed” as a single field on the map endpoints we care about.
+- The **20 pods** in `getDropPod` are **not** the same as “20 drives collected”; they are crash-site actors in the save (mostly still `Opened: false`).
+
+**Open questions for today’s play session:**
+
+1. When a drive is **picked up** from a pod, does `getDropPod.Looted` flip to `true` immediately, or only after M.A.M. analysis?
+2. When a drive is **analyzed in M.A.M.**, what changes — `getCloudInv` count down, new `getSchematics` rows, something else?
+3. Does `getDropPod` gain more rows as new crash sites are **scanned** (object scanner), separate from looting?
+4. Is **`getCloudInv`** the right “drives banked” metric for a dashboard summary, or do we need multiple inventory endpoints?
+
+**After today:** append a second snapshot below this table (date, same columns, delta notes). Do not implement map logic from assumptions until at least one before/after pair is documented.
+
+**Snapshot 2: 2026-08-23 ~09:15 CEST** (during active play — user in M.A.M. / collecting)
+
+**Player-reported state (in-game):**
+
+| Bucket | Count | Notes |
 | --- | --- | --- |
-| `looted` | `Looted == true` | Solid drive icon, muted/green |
-| `opened_unlooted` | `Opened && !Looted` | Highlighted — “go finish this” |
-| `sealed` | `!Opened` | Show `RequiredItem` / `RequiredPower` on hover |
-| `unknown` | In static catalog, no matching FRM row | Ghost/outline marker (phase 2) |
-| `catalog_only` | Static catalog, save not scanned yet | Optional dashed ring |
+| Analyzed in M.A.M., **waiting to choose** alt recipe | **6** | Scan complete; recipe choice not committed |
+| **Currently scanning** in M.A.M. | **1** | In progress |
+| Remaining physical drives | **~rest** | User believes **interdimensional depot** (cloud) |
 
-Matching FRM pods to catalog entries: nearest-neighbor within tolerance (~500 cm) on (x, y), keyed by stable `BP_DropPod*` id when ids align.
+**FRM at same time (`192.168.178.42:8889`):**
 
-### 2.2 M.A.M. nodes “in use”
+| Signal | Value | Δ vs snapshot 1 | Visible in FRM? |
+| --- | --- | --- | --- |
+| `getCloudInv` HD count | **18** | unchanged | Yes — likely depot stock |
+| `getStorageInv` HD | **0** | was 1 | Yes |
+| `getDropPod` looted | **2** | unchanged | Yes — still does not reflect ~20+ collected |
+| `getDropPod` total pods | **20** | unchanged | Yes |
+| M.A.M. “6 pending recipe picks” | — | — | **Not found** as a dedicated field |
+| M.A.M. “1 scanning” | — | — | **Not found** as a dedicated field |
+| `getSchematics` `Type: Hard Drive` | **1** row (generic slot) | unchanged | Does not enumerate 6 pending choices |
+| `getSchematics` alternates unlocked, not purchased | **61** | — | Global alt pool, not the 6 HD queue |
 
-**Already implemented** on `/research`:
+**Interpretation so far:**
 
-- `Purchased` — researched (in use)
-- `Available` — can buy now
-- `Hidden` — not visible yet
+1. **`getCloudInv` (18)** aligns with “most drives sit in the interdimensional depot” while the user works in M.A.M.
+2. **M.A.M. workflow state** (scanning / analyzed-awaiting-choice) is **not exposed** on any FRM endpoint we polled — strongly supports **save-parse** (§1.2) for authoritative exploration/M.A.M. HD queue state if we need it on the dashboard.
+3. **`getDropPod.Looted` is not a reliable “drive collected” signal.** Inventory shows **~18+ drives** in cloud/M.A.M. workflow, but only **2** pods with `Looted: true` (and only **2** with `Opened: true`). If `Looted` meant “drive removed from this crash site,” those numbers cannot both be true — at least **16+ pickups are invisible** to `getDropPod`. Likely explanations to verify: `getDropPod` only lists **scanner-discovered** pods (20 of ~118), `Looted` updates only in specific conditions, or drives were deposited to depot without the pod actor updating. **Do not use `Looted` count as `looted / collected` progress.**
+4. For the **exploration map** specifically we may only need per–crash-site opened/looted flags; until save-parse lands, treat FRM pod rows as **hints** merged with the static catalog, not ground truth.
 
-Live server: **57** purchased, **47** available (no `Hidden` in current save).
+**Still to observe today:** pick one of the 6 recipes, finish the scanning drive, loot another crash site — re-poll FRM and note which endpoints change.
 
-**Gap for “not in use currently”:** nodes that are `Available` but nobody has bought — already styled differently from `Purchased`. No world-map coordinates exist for these; they stay on the research tree canvas.
+### 1.1.1 Save-parse validation (same autosave)
 
-**Optional enhancement (same milestone, low cost):** filter toggles on `/research` — “Purchased / Available / Hidden” — and a summary badge on the new world map page (“47 M.A.M. nodes available”).
+**Save file:** `data/Conveyor Belt Cult_autosave_3 (2).sav` — autosave at **2026-08-23 09:19 CEST** (same play session as snapshots 1–2).  
+**Tool:** [GreyHak `sat_sav_parse`](https://github.com/GreyHak/sat_sav_parse) `sav_cli.py --export-crash-sites` + `--export-dimensional-depot` (subprocess, no Pillow needed for JSON export).  
+**Build:** 502094, save version 60, modded (AutoSort, Depot Sorting, FRM, Infinite Zoop).
 
-### 2.3 Other collectibles (later phases)
+| Signal | Save parse | FRM (snapshot 2) | Match? |
+| --- | --- | --- | --- |
+| Hard drives in interdimensional depot | **18** | `getCloudInv` **18** | Yes |
+| Total crash sites (world catalog) | **118** | — | Static catalog |
+| Sites spawned in save (`found in save`) | **74** (43 closed + 10 open-empty + 21 dismantled) | `getDropPod` **20** rows | No — FRM is a small subset |
+| Sites never spawned | **44** `NOT_IN_SAVE` | no row | Save only |
+| Drive collected from site | **31** (21 `DISMANTLED` + 10 `IN_SAVE_OPEN_EMPTY`) | `Looted: true` **2** | No — FRM misses 29/31 |
+| Opened, drive still inside pod | **0** `IN_SAVE_OPEN_FULL` | `Opened && !Looted` **0** | Yes |
+| Sealed / not yet opened (spawned) | **43** `IN_SAVE_CLOSED` | `Opened: false` **18** (of 20 FRM rows) | Partial overlap |
+
+**Per-site state enum** (`--export-crash-sites` JSON):
+
+| State | Meaning | Count (this save) |
+| --- | --- | --- |
+| `NOT_IN_SAVE` | World position exists in catalog; actor not spawned yet | 44 |
+| `IN_SAVE_CLOSED` | Pod spawned; not opened | 43 |
+| `IN_SAVE_OPEN_FULL` | Opened; hard drive still in pod inventory | 0 |
+| `IN_SAVE_OPEN_EMPTY` | Opened; drive removed; pod still standing | 10 |
+| `DISMANTLED` | Pod dismantled after looting | 21 |
+
+**Inventory reconciliation:** 31 drives taken from sites − 18 in depot = **13** elsewhere (M.A.M. queue, purchased alternates, etc.) — consistent with snapshot 2 (6 awaiting recipe + 1 scanning + 6 prior purchased ≈ 13).
+
+**FRM vs save on the 20 FRM pod rows:**
+
+| FRM `Looted` | FRM `Opened` | Save state | Count |
+| --- | --- | --- | --- |
+| `true` | `true` | `IN_SAVE_OPEN_EMPTY` | **2** (`BP_DropPod15_821`, `BP_DropPod18`) |
+| `false` | `false` | `IN_SAVE_CLOSED` | **18** |
+| — | — | collected but **not** in FRM list | **29** (8 more `IN_SAVE_OPEN_EMPTY` + 21 `DISMANTLED`) |
+
+**Conclusions (resolves §1.1 open questions):**
+
+1. **`getDropPod` is not a complete crash-site list.** It exposes ~20 **currently active** pod actors, not all 74 spawned sites and not all 118 world positions. Unspawned sites (`NOT_IN_SAVE`) and dismantled pods are absent.
+2. **`Looted: true` ≠ “drive ever collected.”** In practice it means **opened + drive removed + pod actor still present** (`IN_SAVE_OPEN_EMPTY`). Once a pod is dismantled, it drops off FRM entirely even though the site was looted.
+3. **`getCloudInv` depot count matches save parse** — good summary metric for “drives banked,” not per-site progress.
+4. **Save parse is authoritative for per-site map markers** (`looted / 118` = count of `IN_SAVE_OPEN_EMPTY` + `DISMANTLED`, optionally + `IN_SAVE_OPEN_FULL`). FRM can supplement live deltas between autosaves but must not drive marker color alone.
+5. **M.A.M. workflow** (scanning / awaiting recipe) is still not in the crash-site export; depot + schematic counts remain separate if we need that dashboard later.
+
+**How FRM and the catalog combine (map UI):**
+
+| Source | What it tells you |
+| --- | --- |
+| FRM `getDropPod` | Per–crash-site state in this save (`Opened`, `Looted`) — **semantics TBD** (§1.1) |
+| FRM `getCloudInv` / storage | Physical drives held, not yet analyzed or spent |
+| Static catalog | All **~118** world positions + typical open requirements (ghost markers, `looted / 118` denominator) |
+
+Static catalog cross-check (2026-08-23): all **20** FRM pods matched a community coordinate reference with **0 cm delta** on x/y.
+
+Marker states on the world map:
+
+| State | Condition (save parse — primary) | Visual (suggested) |
+| --- | --- | --- |
+| `looted` | `DISMANTLED` or `IN_SAVE_OPEN_EMPTY` | Solid drive icon, muted/green |
+| `opened_unlooted` | `IN_SAVE_OPEN_FULL` | Highlighted — “go finish this” |
+| `sealed` | `IN_SAVE_CLOSED` | Show open requirement on hover |
+| `unvisited` | `NOT_IN_SAVE` (catalog only) | Ghost/outline marker |
+
+Match sites to catalog entries by `BP_DropPod*` id (`pathName` suffix); fallback nearest-neighbor within ~500 cm on (x, y). FRM `getDropPod` rows are optional hints between autosaves — see §1.1.1.
+
+### Other collectibles (later phases)
 
 | Collectible | FRM endpoint | Behavior when collected |
 | --- | --- | --- |
-| Somersloop / Mercer sphere | `getArtifacts` | **Disappears** from FRM when picked up (live server: **0** rows — all collected) |
-| Power slug | `getPowerSlug` | Same — live server: **0** remaining |
-| Player beacons / pings | `getMapMarkers` | 17 markers on live server — optional overlay |
+| Somersloop / Mercer sphere | `getArtifacts` | **Disappears** from FRM when picked up |
+| Power slug | `getPowerSlug` | Same |
+| Player beacons / pings | `getMapMarkers` | Optional overlay |
 
-For “not found yet” on slugs/artifacts, the same **static catalog + live remainder** pattern as crash sites applies.
+Same **static catalog + live remainder** pattern as crash sites.
+
+### 1.2 Data source assessment: FRM vs save file vs Dedicated Server API
+
+Three ways to learn hard-drive / crash-site state. **There is no fourth native “exploration API”** on the game server.
+
+#### A. FRM (`GET /getDropPod`, inventory endpoints) — current plan
+
+| Pros | Cons |
+| --- | --- |
+| Already used everywhere in FactoryMate (poller pattern) | **Semantics unclear** — §1.1: 18 drives in cloud, only 2 pods `Looted` |
+| Light JSON polls (~20 pod rows today) | Does not list unvisited sites (needs static catalog for ghosts) |
+| No save download or binary parse | Runs on game `GameThread` when called via DS API proxy too |
+| Fast enough for 5‑min slow poll | May lag or misrepresent pickup vs M.A.M. analysis |
+
+**Verdict:** Useful for **depot counts** (`getCloudInv`) and **optional live hints** between autosaves. **Not authoritative** for per-site loot progress — §1.1.1 shows `Looted` tracks only a subset of open-empty pods, not dismantled or unlisted sites.
+
+#### B. Dedicated Server HTTPS API (port 7777) — already in FactoryMate (M22)
+
+FactoryMate already has `backend/internal/savegame/` with `QueryServerState`, `EnumerateSessions`, `DownloadSaveGame` (see `docs/proposals/savegame-download.md`).
+
+**Native API functions** (Coffee Stain): server admin only — session list, save upload/download, server options, `QueryServerState` (tech tier, player count, …). **No crash-site or hard-drive query.**
+
+**FRM proxy on the same port** (documented in `docs/frm-docs/.../dedicatedserver.adoc`):
+
+```json
+POST /api/v1  { "function": "frm", "endpoint": "getDropPod" }
+```
+
+This returns the **same JSON as FRM** — still `GameThread`, still the same ambiguous fields. It is **not** a different or safer data source; only a different transport (POST + admin token vs GET :8889).
+
+**What the Game API *is* good for here:** obtaining the `.sav` file via `DownloadSaveGame` (already implemented). That enables option C without a new integration.
+
+**Verdict:** Use Game API for **save download**, not as a replacement for FRM polling. Do **not** route exploration polls through `function: frm` unless FRM HTTP is unreachable — adds token + TLS complexity with no accuracy gain.
+
+#### C. Parse `.sav` save file — how SCIM does it
+
+[Satisfactory-Calculator Interactive Map](https://satisfactory-calculator.com/en/interactive-map) derives marker state from **save data**, not live FRM. Community tooling:
+
+| Tool | Relevant capability |
+| --- | --- |
+| [GreyHak `sat_sav_parse`](https://github.com/GreyHak/sat_sav_parse) | `sav_cli.py --export-crash-sites` — opened / looted / dismantled per site; `sav_to_html.py` HD map legend (blue/green/white/cyan) |
+| SCIM `Read.js` (reference only, **do not copy** — license) | Save parser that feeds their map JSON |
+
+| Pros | Cons |
+| --- | --- |
+| **Authoritative save state** — matches what SCIM shows | Heavier: download ~1–25 MiB save + parse CPU |
+| All **~118** sites with correct per-site flags (opened, looted, empty, dismantled) | Parser must track game versions (1.2.x format changes) |
+| Resolves §1.1 ambiguity — validated on group autosave (§1.1.1): 31 collected sites vs FRM `Looted: 2` | **GPL‑3** (`sat_sav_parse`) — do not link statically; subprocess or reimplement in Go |
+| Reuses **existing** `savegame.Service` download path | Stale between autosaves (not real-time like FRM) |
+| No extra load on game `GameThread` during parse (offline) | Rate limit on download (1/user/5min for manual); background job needs its own cadence |
+
+**Verdict:** **Best accuracy** for map markers and `looted / 118`. Best fit as a **slow background job** (e.g. every 30–60 min or after each autosave), not on every dashboard page load and not every 5 min.
+
+#### Recommended hybrid (update to phased plan)
+
+| Data | Source | Cadence |
+| --- | --- | --- |
+| Map positions + open requirements (ghost sites) | Static `exploration_catalog.json` | Ship with app; occasional game-update refresh |
+| Per-site opened / looted / dismantled | **Save parse** (primary once implemented) | Slow background job via `DownloadSaveGame` |
+| Live deltas between autosaves | FRM `getDropPod` (optional overlay) | 5 min slow poll — only if observation shows it updates faster than autosave |
+| “Drives in depot” summary | FRM `getCloudInv` (+ storage) | Same slow poll as today’s inventory pattern |
+| Basemap tiles | `assets/map/` (FModel extract) | Static |
+
+**Phase 1 (observe):** FRM + catalog + basemap — §1.1 play session + §1.1.1 save validation **done**.  
+**Phase 1b:** Add `exploration_save` job: server-side download (admin token, not user rate limit) → parse crash sites → `exploration_site_state` table. **Save wins on conflict** with FRM (documented in §1.1.1).  
+**Phase 1 map UI** can ship with save-parse-backed markers once the background job exists; FRM-only markers would misreport ~29/31 collected sites on this save.
+
+#### Implementation sketch (save path)
+
+```
+savegame.Client.DownloadSaveGame (existing)
+    → temp .sav on disk
+    → sat_sav_parse --export-crash-sites (subprocess, GPL isolated)
+       OR future Go parser (port export format only)
+    → upsert exploration_site_state
+    → delete temp file
+```
+
+Log parse version + save `saveDateTime` from `EnumerateSessions` for debugging. Never expose raw `.sav` to viewers beyond existing download feature.
 
 ---
 
-## 3. Goals and non-goals
+## 2. Goals and non-goals
 
 ### Goals
 
-- Pan/zoom **world map** with markers for crash sites, colored by loot status.
-- Summary header: `looted / total` (total from catalog once phase 2 lands; v1 can show `looted / known_from_frm`).
-- Marker popover: coordinates (game units ÷ 100), open cost, link to `/milestones` Hard Drive tab when relevant.
+- Pan/zoom **world map** (four basemap tiles, §4.5) with markers for crash sites, colored by loot status.
+- Summary: `looted / 118` (phase 2; phase 1 can show `looted / known_from_frm`).
+- Marker popover: coordinates (game units ÷ 100), open cost when known.
 - Reuse existing patterns: slow poll like `getDoggo`, read-only API, viewer access, i18n via `messages/en.json`.
-- Static assets in repo (map image + catalog JSON), same spirit as planner `assets/` and `testdata/frm/`.
 
-### Non-goals (v1 of this feature)
+### Non-goals (v1)
 
-- 3D world view, terrain mesh, or foundation-accurate factory layout (`getFactory` buildings on map — huge scope, separate feature).
-- Importing Satisfactory-Calculator save uploads or parsing `.sav` on every page load (save download exists; optional offline enrichment only).
-- Replacing community maps (SCIM, th.gl) — we show **this save’s** state on a **simple** embedded map.
-- React Flow for geography (React Flow stays planner + research tree only per spec §2.1).
-- Notifications for newly scanned crash sites (could be a follow-up message type; not required for map MVP).
+- M.A.M. research tree, milestone tabs, or hard-drive recipe selection UI.
+- 3D world view or `getFactory` building placement on the map.
+- Parsing `.sav` on every page load.
+- Replacing community maps (SCIM, th.gl) — embed **this save’s** state only.
+- React Flow for geography.
+- Notifications for newly scanned crash sites (optional follow-up).
 
 ---
 
-## 4. Data architecture
+## 3. Data architecture
 
-### 4.1 FRM slow poll (new)
+### 3.1 FRM slow poll (new)
 
 Add to slow poll bundle (§4.1 cadence, default 5 min):
 
@@ -113,12 +278,11 @@ Add to slow poll bundle (§4.1 cadence, default 5 min):
 | `getPowerSlug` | Remaining slugs (phase 3) |
 | `getMapMarkers` | Optional player markers (phase 4) |
 
-Partial failure behavior: same as existing slow poll — log error, keep last-known rows for that entity type.
+Partial failure: log error, keep last-known rows for that entity type.
 
-### 4.2 New DB tables (sketch)
+### 3.2 New DB tables (sketch)
 
 ```sql
--- One row per FRM drop pod id seen on the save
 CREATE TABLE drop_pod_state (
     pod_id TEXT PRIMARY KEY,
     location_x REAL NOT NULL,
@@ -127,16 +291,15 @@ CREATE TABLE drop_pod_state (
     opened BOOLEAN NOT NULL,
     looted BOOLEAN NOT NULL,
     cost_type TEXT,
-    required_item_json TEXT,   -- FRM RequiredItem object
+    required_item_json TEXT,
     required_power INTEGER,
-    catalog_key TEXT,          -- matched static catalog id, nullable until matched
+    catalog_key TEXT,
     updated_at TEXT NOT NULL
 );
 
--- Remaining world collectibles (artifacts, slugs) — phase 3
 CREATE TABLE world_collectible_state (
     entity_id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,        -- 'somersloop' | 'mercer_sphere' | 'power_slug'
+    kind TEXT NOT NULL,
     class_name TEXT,
     name TEXT,
     location_x REAL NOT NULL,
@@ -146,124 +309,105 @@ CREATE TABLE world_collectible_state (
 );
 ```
 
-No new table for M.A.M. nodes or hard-drive schematics — reuse `research_node_state` and `schematic_state`.
+### 3.3 Static exploration catalog (required for “not found yet”)
 
-### 4.3 Static exploration catalog (required for “not found yet”)
-
-Vendored JSON in `backend/data/exploration_catalog.json` (name TBD), versioned with game updates:
+Vendored `backend/data/exploration_catalog.json`:
 
 ```json
 {
   "version": "1.0",
   "dropPods": [
     {
-      "key": "crash-site-001",
-      "x": 236508,
-      "y": -312236,
-      "z": 10000,
-      "label": "Northern Forest #1",
-      "requiredItem": null,
+      "key": "BP_DropPod4_25",
+      "x": -33340,
+      "y": 5176,
+      "z": 23519,
+      "requiredItem": { "name": "Cooling System", "className": "Desc_CoolingSystem_C", "amount": 10 },
       "requiredPowerMw": null
     }
-  ],
-  "powerSlugs": [],
-  "artifacts": []
+  ]
 }
 ```
 
-**Source options (pick one for implementation):**
+**Curation sources (dev reference only — do not commit raw SCIM exports):**
 
-1. **Manual curation** from [Satisfactory Wiki crash site table](https://satisfactory.wiki.gg/wiki/Crash_Site) — ~118 rows, stable coordinates in cm.
-2. **Community export** (verify license): e.g. tools that emit JSON from SCIM datasets — **do not** embed SCIM web assets or scrape their API in production without permission.
-3. **Save parse offline** (dev-only): `sat_sav_parse` / `sav_to_html.py` can list all hard drives with opened/looted flags — useful to **validate** catalog + FRM overlap, not for runtime.
+1. [Satisfactory Wiki crash site table](https://satisfactory.wiki.gg/wiki/Crash_Site) (~118 rows, cm coordinates).
+2. Cross-check against live FRM `getDropPod` as the save progresses.
+3. Offline save parse (`sat_sav_parse`) to validate opened/looted flags — not for runtime.
 
-Coordinate **positions** in the catalog are facts (wiki/community tables in Unreal cm) and are separate from map **imagery** — see §4.5.
+### 3.4 Coordinate transform
 
-### 4.4 Coordinate transform
+FRM `location.x` / `location.y` are Unreal centimeters. In-game map UI uses **÷ 100** (meters).
 
-FRM `location.x` / `location.y` are Unreal centimeters. In-game map coordinates shown to players are typically **÷ 100** (meters). Community maps use the same cm values for marker placement on a fixed image.
-
-Implement `worldToMapPx(x, y) → { left%, top% }` with constants tuned once against the chosen basemap (calibrate 3–5 known crash sites). Store calibration in `exploration_catalog.json` or a small `map_projection.json`:
+Implement `worldToMapPx(x, y) → { xPx, yPx }` on a fixed **8192×8192** logical canvas (four 4096 tiles). Store calibration in `assets/map/map_projection.json`:
 
 ```json
 {
-  "imageWidth": 4096,
-  "imageHeight": 4096,
-  "originX": 0,
-  "originY": 0,
-  "scale": 0.000244
+  "logicalWidth": 8192,
+  "logicalHeight": 8192,
+  "boundWest": -324698.832031,
+  "boundEast": 425301.832031,
+  "boundNorth": -375000,
+  "boundSouth": 375000
 }
 ```
 
-Unit-test the projection with fixtures from live FRM `getDropPod` captures in `backend/testdata/frm/`.
+Bounds above match SCIM’s published world mapping (good starting point; verify against 3–5 known crash sites on our basemap). Unit-test with FRM fixtures in `backend/testdata/frm/`.
 
-### 4.5 Map basemap / tile sourcing
+### 3.5 Map basemap — four tiles, no stitch
 
-There is **no official Coffee Stain source** for map tiles: no tile CDN, no map textures in `CommunityResources` / `FactoryGame-Docs.json`, and no FRM endpoint that returns map imagery. FRM only supplies **world coordinates** for markers; the basemap must come from elsewhere.
+There is **no official Coffee Stain tile CDN**. FRM supplies coordinates only. Basemap comes from game extraction (same policy trade-off as `assets/icons/`).
 
-The [Satisfactory modding docs on extracting game files](https://docs.ficsit.app/satisfactory-modding/latest/Development/ExtractGameFiles.html) state that game assets are Coffee Stain IP and **should not be redistributed without permission**. FactoryMate already vendors extracted item icons under `assets/icons/` for the planner (same policy trade-off). The exploration map basemap should follow that **extract once in dev → commit stitched image → serve from backend** pattern — not runtime extraction in Docker/CI.
-
-#### In-game asset location
-
-The baked 2D world map is stored as four sliced `Texture2D` tiles in the game archives:
+#### In-game asset location (FModel)
 
 ```text
 FactoryGame/Content/FactoryGame/Interface/UI/Assets/MapTest/SlicedMap/
-  Map_0-0.uasset
-  Map_0-1.uasset
-  Map_1-0.uasset
-  Map_1-1.uasset
+  Map_0-0.uasset … Map_1-1.uasset
 ```
 
-Stitch into a single `map.png` for the dashboard. Extraction yields **base terrain only** — no fog of war, resource nodes, player markers, or overlays. Those are drawn by FactoryMate on top (FRM coords + catalog JSON).
+**FModel:** load `FactoryGame-Windows.utoc` → navigate to path above (or search `SlicedMap`) → right-click each `Map_*-*.uasset` → **Save Texture** (PNG). Setup: [modding docs — Extracting Game Files](https://docs.ficsit.app/satisfactory-modding/latest/Development/ExtractGameFiles.html) (`CustomVersions.json` + `FactoryGame.usmap` from `CommunityResources/`).
 
-#### Extraction tooling (dev machine with a legal game install)
+#### Repo status (2026-08-23)
+
+Raw tiles in `assets/map/` (4096×4096 each):
+
+| File | Quadrant |
+| --- | --- |
+| `Map_0-0.png` | top-left |
+| `Map_0-1.png` | top-right |
+| `Map_1-0.png` | bottom-left |
+| `Map_1-1.png` | bottom-right |
+
+**Do not stitch into a single `map.png`.** Reasons:
+
+- Avoids duplicating ~17 MiB of PNG data in the repo.
+- Matches how the game stores the asset (four slices).
+- Frontend renders a 2×2 grid inside one pan/zoom viewport — same UX as one image.
+- Re-exporting one quadrant after a game update is simpler.
+
+```text
+[ Map_0-0 | Map_0-1 ]
+[ Map_1-0 | Map_1-1 ]
+```
+
+Serve tiles via `GET /api/exploration/map/tiles/{row}-{col}` (or four static routes). Extraction yields **base terrain only** — no fog, nodes, or markers (those are FactoryMate overlays).
+
+#### Extraction tooling
 
 | Tool | Role |
 | --- | --- |
-| **[FModel](https://ficsit.app)** | Manual browse/export per modding docs; needs `FactoryGame.usmap` + `CustomVersions.json` from `CommunityResources/` |
-| **[satisfactory-icon-extractor](https://github.com/relyen-dev/satisfactory-icon-extractor)** | `extract-map` subcommand — CUE4Parse-based; outputs `map.png`, `tiles/`, and `manifest.json` with stitch metadata |
-| **GreyHak `sat_sav_parse`** | Uses community `blank_map20.png`-style basemaps for save HTML reports — same underlying idea (someone extracted once), not a runtime dependency |
+| **FModel** | Manual export (paths above) |
+| **[satisfactory-icon-extractor](https://github.com/relyen-dev/satisfactory-icon-extractor)** | `extract-map` — can output tiles + optional stitched `map.png` (ignore stitch; keep tiles) |
 
-Requirements match icon extraction: local Satisfactory install, Oodle decompression (`oo2core_9_win64.dll`), and UE5 pak/utoc access. **Do not** run this in the production container or CI — only on a developer workstation.
+**Do not** use SCIM / satisfactory-calculator tiles (license + Coffee Stain IP). See §8.
 
-#### Recommended FactoryMate workflow
-
-1. **One-time dev extract** (FModel or `extract-map`) from a machine that owns Satisfactory.
-2. **Commit** vendored assets:
-   - `assets/world-map/map.png` — stitched basemap
-   - `assets/world-map/map_projection.json` — calibration constants (§4.4)
-   - optional `assets/world-map/manifest.json` — source game version, tile refs, extract date (for maintenance)
-3. **Serve** via `GET /api/exploration/map/image` (same rationale as `GET /api/planner/icons/{className}` — one backend copy, Docker-friendly).
-4. **Document** extraction steps in `docs/guide/exploration.md` (mirror planner catalog/icon setup).
-5. **Re-extract** when Coffee Stain ships a map update (new biomes, bounds changes) and bump `map_projection.json` if needed.
-
-**Dockerfile:** copy `assets/world-map/` alongside `assets/icons/` and `docs/FactoryGame-Docs.json`; env `EXPLORATION_MAP_PATH` / `EXPLORATION_PROJECTION_PATH` with repo-relative defaults.
-
-#### Rendering approach (v1)
-
-Use a **single large PNG + pan/zoom** (`react-zoom-pan-pinch` or similar) with absolutely positioned marker overlays. A Leaflet **tile pyramid** (like Satisfactory-Calculator) is unnecessary for crash-site markers and adds maintenance cost. Defer tiled deep-zoom unless users ask for it.
-
-#### Approaches to reject
-
-| Approach | Why not |
-| --- | --- |
-| **SCIM / satisfactory-calculator tiles** | License forbids forking/self-hosting; hotlinking is fragile, off-site, and still Coffee Stain IP |
-| **Embed SCIM / th.gl iframe** | No save-state overlay; external dependency (see §9) |
-| **Wiki / scraped map images** | Same IP issues; inconsistent calibration |
-| **Procedural / blank topo only** | Legally safest fallback if extraction is blocked, but worse UX; coords-only on a neutral grid |
-| **Runtime extraction in production** | Impractical — needs full game install, Oodle, and UE5 tooling on the server |
-| **Parse `.sav` for map art** | Save parse is for flags/coords validation, not tile sourcing |
-
-#### Fallback
-
-If committing extracted map art is ever deemed unacceptable, ship phase 1 with a **neutral grid / topo-style SVG** and accurate marker positions only. Prefer extraction aligned with existing `assets/icons/` practice unless counsel says otherwise.
+**Dockerfile:** copy `assets/map/` alongside `assets/icons/`; env `EXPLORATION_MAP_DIR` with repo-relative default.
 
 ---
 
-## 5. API and UI
+## 4. API and UI
 
-### 5.1 REST
+### 4.1 REST
 
 `GET /api/exploration/map` (session, viewer):
 
@@ -271,13 +415,12 @@ If committing extracted map art is ever deemed unacceptable, ship phase 1 with a
 {
   "updatedAt": "2026-08-23T05:42:00Z",
   "stats": {
-    "dropPods": { "looted": 2, "known": 20, "catalogTotal": 118 },
-    "research": { "purchased": 57, "available": 47 }
+    "dropPods": { "looted": 2, "inSave": 20, "catalogTotal": 118 }
   },
   "dropPods": [
     {
       "id": "BP_DropPod15_821",
-      "catalogKey": "crash-site-042",
+      "catalogKey": "BP_DropPod15_821",
       "x": -189258,
       "y": 116331,
       "z": -1764,
@@ -289,125 +432,102 @@ If committing extracted map art is ever deemed unacceptable, ship phase 1 with a
   ],
   "catalog": {
     "dropPods": [
-      { "key": "crash-site-042", "x": -189258, "y": 116331, "label": "…", "requiredItem": null }
+      { "key": "BP_DropPod15_821", "x": -189258, "y": 116331, "requiredItem": null }
     ]
   }
 }
 ```
 
-Phase 1 can omit `catalog` and only return FRM-known pods. Phase 2 adds catalog + `status: "unknown" | "looted" | …` per catalog row.
+Phase 1: FRM pods only (no `catalog`). Phase 2: full catalog + `unvisited` ghost markers.
 
-Optional: `GET /api/exploration/map/image` serves the basemap PNG from `assets/world-map/` (like planner icons).
+`GET /api/exploration/map/tiles/{quadrant}` — `quadrant` is `0-0`, `0-1`, `1-0`, or `1-1`; returns `image/png`.
 
-### 5.2 Page: `/exploration` (or `/map`)
+### 4.2 Page: `/exploration`
 
-| Area | Components (shadcn §8.1) |
+| Area | Components |
 | --- | --- |
-| Header | Title, description, stats badges, last updated |
-| Toolbar | Layer toggles (Crash sites; later slugs/artifacts/markers), filter (looted / unlooted / all) |
-| Canvas | Pan/zoom container + absolutely positioned markers (not React Flow) |
-| Detail | `Popover` or `Sheet` on marker click |
+| Header | Title, stats (`looted / 118`), last updated |
+| Toolbar | Filters: looted / unlooted / all; later layer toggles for slugs/artifacts |
+| Canvas | Pan/zoom over 2×2 tile grid + marker overlays |
+| Detail | `Popover` on marker: coords, open cost |
 
-**Pan/zoom library:** prefer a small dependency (`react-zoom-pan-pinch` or similar) over hand-rolled touch handling. Do **not** add React Flow for this page.
+**Pan/zoom:** `react-zoom-pan-pinch` or similar — not React Flow.
 
-**Icons:** `Desc_HardDrive_C` via existing `ItemIcon` / planner icon route; fallback lucide `HardDrive` if missing.
+**Icons:** `Desc_HardDrive_C` via `ItemIcon`; lucide fallback.
 
-**i18n namespace:** `exploration` in `messages/en.json`.
-
-### 5.3 Cross-links
-
-| From | To |
-| --- | --- |
-| Crash site popover | `/milestones` (Hard Drive tab) when `schematic_state` has `locked=false, purchased=false` |
-| Header stat “M.A.M. progress” | `/research` |
-| `/research` (optional) | “View on world map” only if we ever add geo for something — not for M.A.M. nodes |
+**i18n:** `exploration` namespace in `messages/en.json`.
 
 ---
 
-## 6. Phased delivery
+## 5. Phased delivery
 
-### Phase 1 — “What we know from FRM” (MVP)
+### Phase 1 — FRM pods on basemap (MVP)
 
-**Scope:** `getDropPod` slow poll, `drop_pod_state`, `GET /api/exploration/map`, `/exploration` page with basemap + markers for pods FRM returns.
+- `getDropPod` slow poll, `drop_pod_state`, API + `/exploration` page.
+- Four-tile basemap + markers for pods FRM returns.
+- **DoD:** looted / opened / sealed styling; coords ÷ 100 in popover; projection tests; i18n; CI green.
 
-**DoD:**
+### Phase 2 — Full catalog
 
-- Looted vs unlooted vs sealed styling matches §2.1 table.
-- Coordinates in popover match in-game map (÷ 100) within rounding.
-- Slow poll fixture test + API test; frontend Vitest for projection helper.
-- No hardcoded UI strings; `npm run build` + `go test` pass.
+- `exploration_catalog.json` (~118 sites), merge with FRM, ghost markers for unvisited.
+- **DoD:** `looted / 118`; ≥ 95% FRM pods match catalog by id; guide in `docs/guide/exploration.md`.
 
-**Does not yet show:** crash sites never returned by FRM.
+### Phase 3 — Other collectibles
 
-### Phase 2 — “What’s still out there”
-
-**Scope:** Vendored `exploration_catalog.json` (~118 crash sites), merge logic, ghost markers for catalog entries without a looted FRM row, accurate `looted / 118` summary.
-
-**DoD:**
-
-- ≥ 95% of FRM pods auto-match a catalog key on live save.
-- Unmatched FRM pods still render (orphan marker + log warning).
-- Document catalog update process in `docs/guide/exploration.md`.
-
-### Phase 3 — Collectibles
-
-**Scope:** `getArtifacts`, `getPowerSlug`, `world_collectible_state`, layer toggles, static catalog slices for slugs/spheres.
+- `getArtifacts`, `getPowerSlug`, layer toggles, catalog slices.
 
 ### Phase 4 — Polish
 
-- `getMapMarkers` player beacons (filter `MapMarkerType`)
-- Radar tower scanned resources (`getRadarTower` — large payload; evaluate need)
-- Hard-drive schematic overlay: list **available recipe options** on looted sites only if we can correlate (likely **not** without save parse — show global “X drives ready in MAM” instead)
-
-### Phase 5 — Research tree UX (optional, small)
-
-- Filter chips on `/research` canvas
-- Shared color language: purchased = emerald, available = primary, hidden = dashed muted (already in `research-node.tsx`)
+- `getMapMarkers` player beacons.
+- Optional link-out to SCIM (“open in interactive map”) — external only, not embedded tiles.
 
 ---
 
-## 7. Open questions (resolve before implementation)
+## 6. Open questions
 
-1. **FRM `getDropPod` completeness:** Why only 20 pods on a mid-game save? Read FRM source / ask community whether undiscovered pods are omitted. This determines how aggressively we rely on the static catalog.
-2. **Catalog licensing:** Confirm we can ship coordinate lists derived from wiki/community data (facts are not copyrightable; dataset packaging may need attribution).
-3. **Basemap redistribution:** Resolved approach in §4.5 — extract like planner icons; re-extract on game updates. Open only if legal review rejects committing `assets/world-map/map.png`.
-4. **Route name:** `/exploration` vs `/map` vs extending `/milestones` — prefer `/exploration` to avoid confusion with factory planner “map”.
-5. **Notifications:** Worth a `crash_site_looted` or `hard_drive_collected` event? Out of scope for map MVP but affects poller design if added later.
+1. **FRM hard-drive semantics (§1.1):** Resolve `getDropPod.Looted` vs `getCloudInv` vs M.A.M. analysis — observe before/after today’s session.
+2. **Save vs FRM authority (§1.2):** **Decided** — save-parse primary for per-site flags (§1.1.1); FRM optional for depot count and between-autosave hints.
+3. **Catalog licensing:** Confirm we can ship coordinate lists derived from wiki/community data (facts vs dataset packaging).
+4. **Basemap redistribution:** Extract like planner icons; tiles in `assets/map/`. Legal review only if committing PNGs is blocked.
+5. **Route name:** `/exploration` vs `/map` — prefer `/exploration`.
+6. **Dashboard HD summary:** If we show “drives collected”, is `getCloudInv` enough or save-parse totals?
+7. **Save-parse integration:** Subprocess `sat_sav_parse` (GPL) vs Go reimplementation — legal/engineering trade-off.
+8. **Notifications:** `crash_site_looted` event? Defer unless requested.
 
 ---
 
-## 8. Effort estimate (rough)
+## 7. Effort estimate (rough)
 
 | Phase | Backend | Frontend | Assets/data |
 | --- | --- | --- | --- |
-| 1 — FRM pods only | 1–2 days | 2–3 days | Basemap + calibration |
-| 2 — Full catalog | 1 day | 1 day | 1–2 days curating JSON |
-| 3 — Slugs/artifacts | 1 day | 1 day | Catalog extension |
-| 4 — Markers/polish | 0.5–1 day | 1–2 days | — |
+| 1 — FRM + basemap | 1–2 days | 2–3 days | tiles done; projection JSON |
+| 2 — Catalog | 1 day | 1 day | 1–2 days curating JSON |
+| 3 — Slugs/artifacts | 1 day | 1 day | catalog extension |
+| 4 — Polish | 0.5–1 day | 1 day | — |
 
-Spec/roadmap touch: new milestone **M23** (or M14 backlog item) after M22; update §3, §4.1, §7, §8 when promoted to roadmap.
-
----
-
-## 9. Alternatives considered
-
-| Approach | Pros | Cons |
-| --- | --- | --- |
-| **Extract basemap from game install (§4.5)** | Matches `assets/icons/` precedent; accurate terrain; offline, no external tile host | Coffee Stain IP; manual re-extract on map updates; dev workstation required |
-| **Embed SCIM / th.gl iframe** | Zero maintenance of map tiles | No save state overlay, licensing, auth, off-site dependency |
-| **SCIM / calculator tile hotlink** | Looks like the familiar map | ToS/IP risk, brittle URLs, no self-hosting |
-| **Procedural / blank topo basemap** | No game art in repo | Worse UX; still needs projection calibration |
-| **Parse `.sav` on each request** | Complete opened/looted flags | Heavy, needs save download, slow, duplicates M22 |
-| **Only extend `/research` tree** | Already built | Does not answer “where is the next hard drive?” |
-| **FRM-only, no catalog** | Simplest code | Cannot show “not found yet” — fails user’s stated goal |
-
-**Recommendation:** Hybrid — **FRM for live state**, **static catalog for completeness**, **extracted basemap in `assets/world-map/`** (§4.5) — same pattern as planner’s `FactoryGame-Docs.json` + `assets/icons/` + live FRM split.
+Promote to roadmap as **M23** (or M14 backlog) after M22; update spec §3, §4.1, §7, §8 when scheduled.
 
 ---
 
-## 10. Success criteria
+## 8. Alternatives considered
 
-1. A player can open `/exploration`, pan to an unlooted crash site near their base, read the open requirement, and paste coordinates into the game map.
-2. Progress summary matches FRM: looted count equals pods with `Looted: true` in the latest slow poll.
-3. After phase 2, total crash sites matches community reference (~118) with ghost markers for never-seen sites.
-4. `/research` and `/milestones` remain the source of truth for M.A.M. and hard-drive **recipe** state; the world map does not duplicate that data entry.
+| Approach | Verdict |
+| --- | --- |
+| **Four extracted tiles (§3.5)** | **Recommended** — matches game asset layout, no duplicate stitch file |
+| **Stitch to single `map.png`** | Rejected — redundant ~17 MiB, no UX gain for v1 |
+| **SCIM tiles / hotlink** | Rejected — license + IP + dependency |
+| **Embed SCIM iframe** | External link only; no overlay control |
+| **FRM-only, no catalog** | Cannot show unvisited sites or `looted / 118` |
+| **Save parse (§1.2)** | **Recommended for authoritative per-site state** — SCIM model; reuse M22 download |
+| **Game API `function: frm` proxy** | Rejected as primary — same data as FRM, more moving parts |
+| **Parse `.sav` on every page load** | Rejected — too heavy; background job only |
+
+**Recommendation:** **Static catalog** (positions) + **save parse** (opened/looted/dismantled on a slow job) + **FRM** optional for live deltas and depot counts + **four-tile basemap** in `assets/map/`.
+
+---
+
+## 9. Success criteria
+
+1. Player opens `/exploration`, pans to an unlooted crash site, reads open requirements, copies coordinates for the in-game map.
+2. `looted` count matches FRM (`Looted: true` rows) on the latest slow poll.
+3. After phase 2, all ~118 catalog sites visible; unvisited sites shown as ghosts; progress reads `looted / 118`.
