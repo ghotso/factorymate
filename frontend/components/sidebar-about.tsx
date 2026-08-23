@@ -13,16 +13,24 @@ import { cn } from "@/lib/utils"
 type SidebarAboutProps = {
   className?: string
   variant?: "sidebar" | "auth"
+  showVersion?: boolean
+  showLinks?: boolean
 }
 
 export function SidebarAbout({
   className,
   variant = "sidebar",
+  showVersion = true,
+  showLinks = true,
 }: SidebarAboutProps) {
   const t = useTranslations("about")
 
   const linkClassName =
     "inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+
+  if (!showVersion && !showLinks) {
+    return null
+  }
 
   return (
     <div
@@ -33,54 +41,59 @@ export function SidebarAbout({
         className
       )}
     >
-      <p
-        className={cn(
-          "font-mono text-xs text-muted-foreground",
-          variant === "sidebar" &&
-            "mb-1.5 px-1 group-data-[collapsible=icon]:mb-0 group-data-[collapsible=icon]:text-center"
-        )}
-        title={t("version", { version: APP_VERSION })}
-      >
-        {variant === "sidebar" ? (
-          <>
-            <span className="group-data-[collapsible=icon]:hidden">
-              {t("version", { version: APP_VERSION })}
-            </span>
-            <span className="hidden group-data-[collapsible=icon]:inline">
-              {t("shortVersion", { version: APP_VERSION })}
-            </span>
-          </>
-        ) : (
-          t("version", { version: APP_VERSION })
-        )}
-      </p>
-      <div
-        className={cn(
-          "flex flex-wrap items-center gap-x-3 gap-y-1",
-          variant === "sidebar" &&
-            "px-1 group-data-[collapsible=icon]:hidden",
-          variant === "auth" && "justify-center"
-        )}
-      >
-        <a
-          href={GITHUB_REPO_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={linkClassName}
+      {showVersion ? (
+        <p
+          className={cn(
+            "font-mono text-xs text-muted-foreground",
+            variant === "sidebar" &&
+              "mb-1.5 px-1 group-data-[collapsible=icon]:mb-0 group-data-[collapsible=icon]:text-center",
+            showLinks && variant === "auth" && "mb-1.5"
+          )}
+          title={t("version", { version: APP_VERSION })}
         >
-          <ExternalLinkIcon className="size-3.5 shrink-0" />
-          {t("github")}
-        </a>
-        <a
-          href={BUG_REPORT_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={linkClassName}
+          {variant === "sidebar" ? (
+            <>
+              <span className="group-data-[collapsible=icon]:hidden">
+                {t("version", { version: APP_VERSION })}
+              </span>
+              <span className="hidden group-data-[collapsible=icon]:inline">
+                {t("shortVersion", { version: APP_VERSION })}
+              </span>
+            </>
+          ) : (
+            t("version", { version: APP_VERSION })
+          )}
+        </p>
+      ) : null}
+      {showLinks ? (
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-x-3 gap-y-1",
+            variant === "sidebar" &&
+              "px-1 group-data-[collapsible=icon]:hidden",
+            variant === "auth" && "justify-center"
+          )}
         >
-          <BugIcon className="size-3.5 shrink-0" />
-          {t("reportBug")}
-        </a>
-      </div>
+          <a
+            href={GITHUB_REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={linkClassName}
+          >
+            <ExternalLinkIcon className="size-3.5 shrink-0" />
+            {t("github")}
+          </a>
+          <a
+            href={BUG_REPORT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={linkClassName}
+          >
+            <BugIcon className="size-3.5 shrink-0" />
+            {t("reportBug")}
+          </a>
+        </div>
+      ) : null}
     </div>
   )
 }

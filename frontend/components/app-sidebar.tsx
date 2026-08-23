@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { useTranslations } from "next-intl"
 
 import type { User } from "@/lib/auth-types"
+import { APP_VERSION } from "@/lib/app-meta"
 import { FactoryMateLogo } from "@/components/factorymate-logo"
 import { SidebarAbout } from "@/components/sidebar-about"
 import { NavMain } from "@/components/nav-main"
@@ -49,6 +50,7 @@ export function AppSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar> & { user: User }) {
   const t = useTranslations("nav")
+  const tAbout = useTranslations("about")
   const tCommon = useTranslations("common")
 
   const viewerItems: NavItem[] = [
@@ -177,7 +179,14 @@ export function AppSidebar({
               render={<Link href="/" aria-label={tCommon("appName")} />}
               className="data-[slot=sidebar-menu-button]:p-1.5!"
             >
-              <FactoryMateLogo variant="onDark" />
+              <FactoryMateLogo
+                variant="onDark"
+                showVersion
+                versionLabel={tAbout("version", { version: APP_VERSION })}
+                shortVersionLabel={tAbout("shortVersion", {
+                  version: APP_VERSION,
+                })}
+              />
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -189,8 +198,8 @@ export function AppSidebar({
         ) : null}
       </SidebarContent>
       <SidebarFooter>
-        <SidebarAbout />
         <NavUser user={user} />
+        <SidebarAbout showVersion={false} />
       </SidebarFooter>
     </Sidebar>
   )
