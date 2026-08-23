@@ -57,8 +57,18 @@ func (e *SlowEngine) PollOnce(ctx context.Context, result frm.SlowPollResult, no
 
 	if err, ok := result.Errors["getDoggo"]; ok {
 		e.logf("slow poll getDoggo: %v", err)
-	} else if err := upsertDoggoState(ctx, e.DB, result.Doggos, now); err != nil {
-		e.logf("doggo_state: %v", err)
+	} else {
+		if err := upsertDoggoState(ctx, e.DB, result.Doggos, now); err != nil {
+			e.logf("doggo_state: %v", err)
+		} else {
+			keepIDs := make([]string, 0, len(result.Doggos))
+			for _, d := range result.Doggos {
+				keepIDs = append(keepIDs, d.ID)
+			}
+			if err := deleteDoggosNotInPoll(ctx, e.DB, keepIDs); err != nil {
+				e.logf("doggo_state prune: %v", err)
+			}
+		}
 	}
 
 	if err := appendCircuitSnapshots(ctx, e.DB, now); err != nil {

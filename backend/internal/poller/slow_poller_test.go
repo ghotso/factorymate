@@ -174,6 +174,52 @@ func TestSlowPollRetention(t *testing.T) {
 	}
 }
 
+func TestDoggoStatePrunesStaleRows(t *testing.T) {
+	t.Chdir("../..")
+
+	ctx := context.Background()
+	database := openTestDB(t)
+	defer database.Close()
+
+	if err := db.Init(ctx, database, db.SeedConfig{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	ts := now.UTC().Format(time.RFC3339)
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO doggo_state (doggo_id, name, inventory_json, updated_at)
+		VALUES ('stale-doggo-1', 'DoggoWithLongName', '[]', ?),
+		       ('stale-doggo-2', 'DoggoWithLongName', '[]', ?)`,
+		ts, ts,
+	); err != nil {
+		t.Fatalf("seed stale doggo_state: %v", err)
+	}
+
+	slowEngine := &poller.SlowEngine{DB: database}
+	if err := slowEngine.PollOnce(ctx, slowPollFixture(t), now); err != nil {
+		t.Fatalf("slow poll: %v", err)
+	}
+
+	var doggoCount int
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM doggo_state`).Scan(&doggoCount); err != nil {
+		t.Fatalf("count doggo_state: %v", err)
+	}
+	if doggoCount != 1 {
+		t.Fatalf("doggo_state rows = %d, want 1 after prune", doggoCount)
+	}
+
+	var staleCount int
+	if err := database.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM doggo_state WHERE doggo_id IN ('stale-doggo-1', 'stale-doggo-2')`,
+	).Scan(&staleCount); err != nil {
+		t.Fatalf("count stale doggo_state: %v", err)
+	}
+	if staleCount != 0 {
+		t.Fatalf("expected stale doggo_state rows removed, found %d", staleCount)
+	}
+}
+
 func TestSlowPollViaMockServer(t *testing.T) {
 	t.Chdir("../..")
 

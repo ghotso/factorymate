@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"factorymate/internal/frm"
@@ -178,6 +179,25 @@ func upsertDoggoState(ctx context.Context, db *sql.DB, doggos []frm.Doggo, now t
 		}
 	}
 	return nil
+}
+
+func deleteDoggosNotInPoll(ctx context.Context, db *sql.DB, keepIDs []string) error {
+	if len(keepIDs) == 0 {
+		_, err := db.ExecContext(ctx, `DELETE FROM doggo_state`)
+		return err
+	}
+
+	placeholders := make([]string, len(keepIDs))
+	args := make([]any, 0, len(keepIDs))
+	for i, id := range keepIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+
+	query := `DELETE FROM doggo_state WHERE doggo_id NOT IN (` +
+		strings.Join(placeholders, ",") + `)`
+	_, err := db.ExecContext(ctx, query, args...)
+	return err
 }
 
 func appendCircuitSnapshots(ctx context.Context, db *sql.DB, now time.Time) error {
