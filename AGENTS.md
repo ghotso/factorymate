@@ -26,6 +26,8 @@ When the user asks to orchestrate or run the roadmap autonomously:
 - **Verifier agents** run three-layer checks; on PASS mark **all task checkboxes** under that milestone `- [x]`; on FAIL mark them `- [!] failed — <reason>`
 - Autonomous loop ends at **M13**; M14 is manual backlog only
 
+**GitHub issue mode** (`/orchestrator #<N>`): orchestrator loads issue + comments via `gh`, uses ISSUE EXECUTION / ISSUE VERIFIER prompts, no roadmap checkbox edits. Status labels: execution sets `in-progress` → `in-review`; verifier sets `nightly` (PASS) or `in-progress` (FAIL). Commits must include `Fixes #<N>` in the body for auto-close on `main`. See [`.agents/skills/orchestrator/references/github-issue-mode.md`](.agents/skills/orchestrator/references/github-issue-mode.md).
+
 ## Commits
 
 Conventional commits with milestone ref: `feat(M3): implement fast-poll diff engine`

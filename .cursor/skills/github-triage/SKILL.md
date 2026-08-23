@@ -3,8 +3,10 @@ name: github-triage
 description: >-
   Triage GitHub issues with sub-agents: with an issue number, draft an
   investigation comment; with no number, draft a new issue title and body.
-  Does not apply a fix, post, or create until the user approves. Use when the
-  user runs /github-triage or asks to triage or file a GitHub issue.
+  Does not apply a fix, post, or create until the user approves. After posting
+  or creating, assigns the issue to the current GitHub user and sets status:ready
+  so the orchestrator can pick it up. Use when the user runs /github-triage or
+  asks to triage or file a GitHub issue.
 disable-model-invocation: true
 ---
 
@@ -23,8 +25,11 @@ Do **not** apply a fix in either mode.
 
 ## Hard rules
 
+- **One `status:*` label per issue (invariant).** An issue must have **at most one** label whose name starts with `status:` — never zero is fine before triage, but **never two or more**. When setting a status, **remove every existing `status:*` label first**, then add the new one. Adding a new status without removing the old one is always wrong.
 - **No code changes.** Do not edit, patch, or commit anything while this skill is running.
 - **No GitHub write until approval.** Do not post a comment or create an issue until the user explicitly confirms the draft (or supplies an edited version).
+- **Status label after write.** After posting a triage comment or creating a new issue, always set `status:ready` (swap — remove any other `status:*` label first). This signals the orchestrator can pick it up.
+- **Assign after write.** After posting or creating, assign the issue to the **current GitHub user** (whoever is authenticated in GitHub MCP or `gh` CLI). Do not assign before user approval.
 - **Investigation is sub-agents only.** The parent agent must not search, read, or grep the codebase to diagnose the issue. Fetching GitHub data, launching sub-agents, and drafting from their reports are the only parent-side jobs.
 - If the user also asks to fix, post, or create immediately, still follow this skill: investigate → draft → wait.
 
@@ -55,6 +60,8 @@ Then follow **Existing issue** or **New issue** below.
 - [ ] Draft comment from sub-agent reports
 - [ ] Show draft; wait for user verification
 - [ ] Post only after explicit approval
+- [ ] Assign issue to current GitHub user
+- [ ] Set status:ready on the issue (swap status:* labels)
 ```
 
 ### Fetch the issue
@@ -157,7 +164,28 @@ gh issue comment {N} -R {owner/repo} --body-file /tmp/github-triage-{N}-comment.
 
 Write the approved body to that file first. Do not pass a long body on the shell command line.
 
-After posting, give the issue URL. Still do not apply a fix unless the user starts a new request for that.
+**Then assign + set `status:ready`** (mandatory — same approval step). Resolve the current user if needed:
+
+```bash
+gh api user --jq .login    # optional — gh also accepts @me
+```
+
+```bash
+gh issue edit {N} -R {owner/repo} \
+  --add-assignee @me \
+  --remove-label "status:backlog" \
+  --remove-label "status:in-progress" \
+  --remove-label "status:in-review" \
+  --remove-label "status:nightly" \
+  --remove-label "status:done" \
+  --add-label "status:ready"
+```
+
+GitHub MCP: assign to the authenticated session user when editing the issue (same step as labels).
+
+Remove whichever `status:*` labels are present — do not leave two `status:*` labels on the issue. If the current user is already assigned and `status:ready` is already set, skip redundant edits.
+
+After posting, assigning, and setting the label, give the issue URL. Still do not apply a fix unless the user starts a new request for that.
 
 ## New issue
 
@@ -167,6 +195,8 @@ After posting, give the issue URL. Still do not apply a fix unless the user star
 - [ ] Draft issue title and body from sub-agent reports
 - [ ] Show draft; wait for user verification
 - [ ] Create the issue only after explicit approval
+- [ ] Ensure issue is assigned to current GitHub user
+- [ ] Ensure status:ready is set on the new issue
 ```
 
 Use the same sub-agent rules as existing-issue mode. Pass the user's prompt as the problem statement:
@@ -221,12 +251,18 @@ GitHub MCP: use the create-issue tool after reading its schema.
 gh CLI:
 
 ```bash
-gh issue create -R {owner/repo} --title "{approved title}" --body-file /tmp/github-triage-new-issue.md
+gh issue create -R {owner/repo} \
+  --title "{approved title}" \
+  --body-file /tmp/github-triage-new-issue.md \
+  --assignee @me \
+  --label "status:ready"
 ```
 
 Write the approved body to that file first. Do not pass a long body on the shell command line.
 
-After creating, give the new issue URL. Still do not apply a fix unless the user starts a new request for that.
+If the create API/MCP path does not support assignee or labels, create the issue then run the same `gh issue edit` from **Post after verification** (`--add-assignee @me` + `status:ready` swap).
+
+After creating, give the new issue URL and confirm assignee + `status:ready`. Still do not apply a fix unless the user starts a new request for that.
 
 ## Examples
 
@@ -244,4 +280,22 @@ No number → new-issue mode. Investigate with sub-agents, show title + body, wa
 
 **User:** "post it" / "create it" (after a draft in this thread)
 
-Post the comment or create the issue as drafted. Do not start a new investigation.
+Post the comment or create the issue as drafted. Assign to the current GitHub user and set `status:ready` if not already done. Do not start a new investigation.
+
+## Post-write housekeeping
+
+After user approval, every triage write must:
+
+1. **Assign** the issue to the authenticated GitHub user (`@me` in gh CLI; session user in GitHub MCP).
+2. **Set `status:ready`** — enforce the **one `status:*` per issue** rule: remove **all** existing `status:*` labels, then add `status:ready`.
+
+Do **not** assign or change labels before user approval — only after the comment is posted or the issue is created.
+
+When swapping status, always remove every `status:*` label that might be present (`status:backlog`, `status:ready`, `status:in-progress`, `status:in-review`, `status:nightly`, `status:done`) before adding the target. An issue with two `status:*` labels is a bug — fix it immediately.
+
+Full status lifecycle: `.agents/skills/orchestrator/references/github-issue-mode.md`.
+
+| When | Action |
+| ---- | ------ |
+| After posting triage comment | `--add-assignee @me` + swap any `status:*` → `status:ready` |
+| After creating new issue | `--assignee @me` + `status:ready` at create (or edit after) |

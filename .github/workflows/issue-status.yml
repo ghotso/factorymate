@@ -1,0 +1,96 @@
+name: Issue status labels
+
+on:
+  issues:
+    types: [opened, closed]
+
+permissions:
+  issues: write
+
+jobs:
+  sync-status-label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set status:backlog on new issues
+        if: github.event.action == 'opened'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const { owner, repo } = context.repo;
+            const statusPrefix = 'status:';
+
+            const labels = issue.labels.map((l) => l.name);
+            const hasStatus = labels.some((l) => l.startsWith(statusPrefix));
+
+            if (hasStatus) {
+              console.log(
+                `Issue #${issue.number} already has a status:* label (${labels.filter((l) => l.startsWith(statusPrefix)).join(', ')}); skipping backlog.`
+              );
+              return;
+            }
+
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number: issue.number,
+              labels: ['status:backlog'],
+            });
+
+            console.log(`Set status:backlog on issue #${issue.number}`);
+
+      - name: Sync status labels on close
+        if: github.event.action == 'closed'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const { owner, repo } = context.repo;
+            const statusPrefix = 'status:';
+            const reason = issue.state_reason;
+
+            const labels = issue.labels.map((l) => l.name);
+            const statusLabels = labels.filter((l) => l.startsWith(statusPrefix));
+
+            for (const label of statusLabels) {
+              await github.rest.issues.removeLabel({
+                owner,
+                repo,
+                issue_number: issue.number,
+                name: label,
+              });
+            }
+
+            if (reason === 'completed') {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: issue.number,
+                labels: ['status:done'],
+              });
+              console.log(`Closed as completed — set status:done on issue #${issue.number}`);
+              return;
+            }
+
+            const closeLabelByReason = {
+              duplicate: 'duplicate',
+              not_planned: 'wontfix',
+            };
+            const closeLabel = closeLabelByReason[reason];
+
+            if (closeLabel) {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: issue.number,
+                labels: [closeLabel],
+              });
+              console.log(
+                `Closed as ${reason} — cleared status:* and set ${closeLabel} on issue #${issue.number}`
+              );
+              return;
+            }
+
+            console.log(
+              `Closed with state_reason=${reason ?? 'unknown'} — cleared status:* only`
+            );

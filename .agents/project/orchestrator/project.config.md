@@ -55,4 +55,19 @@ Scoped gate: run tests for packages touched in WRITE SCOPE only.
 | Field | Value |
 | ----- | ----- |
 | Slack session-end | not configured |
-| External issue tracker | none — roadmap checkboxes only |
+| GitHub issues | `gh issue view <N>` — orchestrator issue mode (`/orchestrator #<N>`); roadmap checkboxes unchanged |
+
+### Issue status labels (`status:*`)
+
+| Label | Set by |
+| ----- | ------ |
+| `status:backlog` | Human / GHA `issue-status.yml` on `issues.opened` (when no `status:*` yet) |
+| `status:ready` | Triage — orchestrator expects this at pickup |
+| `status:in-progress` | Execution agent (first action) or verifier on FAIL |
+| `status:in-review` | Execution agent (before handoff) |
+| `status:nightly` | Verifier on PASS |
+| `status:done` | GHA `issue-status.yml` on `issues.closed` when `state_reason` is `completed` |
+
+Close-outcome labels (not `status:*`): `duplicate` and `wontfix` — set by GHA on close per `state_reason`; already exist on the repo.
+
+All six labels exist on `ghotso/factorymate`. **Invariant: exactly one `status:*` per issue** — always remove the current `status:*` before adding the next; never stack multiple.

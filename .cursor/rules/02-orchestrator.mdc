@@ -10,9 +10,12 @@ FactoryMate is built **milestone-by-milestone** from `docs/factorymate-roadmap.m
 ## Use the orchestrator skill when
 
 - The user asks to "orchestrate", "delegate", "run the roadmap", "implement M3", or "develop autonomously"
+- The user invokes with a **GitHub issue number** — e.g. `/orchestrator #5`, `orchestrate issue 5`
 - Multi-milestone work should run without the main agent implementing directly
 
 Follow `.agents/skills/orchestrator/SKILL.md`. Do not improvise a different workflow.
+
+**Issue mode:** orchestrator fetches issue description + comments via `gh`, derives acceptance, dispatches execution + verifier. No roadmap checkbox updates. Agents keep `status:*` labels in sync (`ready` → `in-progress` → `in-review` → `nightly` or back to `in-progress` on FAIL).
 
 ## Use the roadmap directly when
 
@@ -45,4 +48,4 @@ Spec wins on product conflicts. Roadmap does not redefine spec.
 
 All `frontend/` work: follow `docs/factorymate-spec.md` §8.2 and `.cursor/rules/03-i18n.mdc` — next-intl, `messages/en.json`, no hardcoded UI strings.
 
-Conventional commits with milestone ref: `feat(M3): implement fast-poll diff engine`. No external issue tracker in v1.
+Conventional commits with milestone ref: `feat(M3): implement fast-poll diff engine`. Issue mode: subject `fix: summary` + body `Fixes #N` (auto-closes on merge to `main`).

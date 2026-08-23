@@ -12,6 +12,18 @@ Entry-point workflows own triggers; reusable workflows (prefixed `_`) are called
 | `dev.yml` | `push` → `dev` | `_ci.yml` (`include_docker: false`) → `_container-image.yml` |
 | `main.yml` | `push` → `main` | `_release-draft.yml` |
 | `release.yml` | `release` → `published` (`v*`) | `_container-image.yml`, MkDocs → GitHub Pages |
+| `issue-status.yml` | `issues` → `opened`, `closed` | `status:backlog` on create; on close → `status:done` / `duplicate` / `wontfix` by `state_reason` |
+
+## Issue status automation (`issue-status.yml`)
+
+Keeps the **one `status:*` per issue** invariant for lifecycle bookends:
+
+| Event | Action |
+|-------|--------|
+| `issues.opened` | Add `status:backlog` **only when** the issue has no existing `status:*` label (skips triage/orchestrator-created issues that already have e.g. `status:ready`) |
+| `issues.closed` | Remove all `status:*` labels. Then: `completed` → `status:done`; `duplicate` → `duplicate`; `not_planned` → `wontfix` (existing repo labels, not `status:*`) |
+
+Does **not** run on `issues.edited` — that would fight triage and orchestrator label updates mid-workflow.
 
 ## Trigger rules
 
