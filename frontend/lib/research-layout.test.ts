@@ -9,6 +9,7 @@ import {
   computeEdges,
   coordKey,
   countResearchProgress,
+  researchCellHeightForContent,
   resolveParentCoords,
 } from "@/lib/research-layout"
 
@@ -236,6 +237,17 @@ describe("computeEdges", () => {
     expect(parentKeys).not.toContain("5,2")
     expect(parentKeys).toContain("2,2")
     expect(parentKeys).toContain("4,2")
+  })
+})
+
+describe("researchCellHeightForContent", () => {
+  it("keeps the minimum cell height when content is short", () => {
+    expect(researchCellHeightForContent(80)).toBe(RESEARCH_CELL_HEIGHT)
+  })
+
+  it("grows the cell when content plus padding exceeds the minimum", () => {
+    expect(researchCellHeightForContent(200)).toBeGreaterThan(RESEARCH_CELL_HEIGHT)
+    expect(researchCellHeightForContent(200)).toBe(200 + 16 + 16)
   })
 })
 

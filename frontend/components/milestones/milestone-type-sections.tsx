@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl"
 
+import { GameItemCardGrid } from "@/components/game-item-card-grid"
 import { MilestoneSchematicCard } from "@/components/milestones/milestone-schematic-card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -48,7 +49,7 @@ export function MilestoneTypeSections({
             <CardDescription>{t("hardDriveReadyDescription")}</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-wrap gap-3">
+            <GameItemCardGrid>
               {ready.map((schematic) => (
                 <HardDriveReadyCard
                   key={schematic.id}
@@ -60,7 +61,7 @@ export function MilestoneTypeSections({
                   }
                 />
               ))}
-            </div>
+            </GameItemCardGrid>
           </CardContent>
         </Card>
       ) : null}
@@ -75,15 +76,16 @@ export function MilestoneTypeSections({
               {t("schematicCount", { count: row.schematics.length })}
             </Badge>
           </div>
-          <div className="flex flex-wrap gap-3">
+          <GameItemCardGrid>
             {row.schematics.map((schematic) => (
-              <MilestoneSchematicCard
-                key={schematic.id}
-                schematic={schematic}
-                techTier={row.techTier}
-              />
+              <div key={schematic.id} className="flex h-full min-w-0">
+                <MilestoneSchematicCard
+                  schematic={schematic}
+                  techTier={row.techTier}
+                />
+              </div>
             ))}
-          </div>
+          </GameItemCardGrid>
         </section>
       ))}
     </div>
@@ -100,8 +102,10 @@ function HardDriveReadyCard({
   const t = useTranslations("milestones")
 
   return (
-    <div className="space-y-2 rounded-lg border border-primary/40 bg-card p-3">
-      <MilestoneSchematicCard schematic={schematic} techTier={techTier} />
+    <div className="flex h-full min-w-0 flex-col space-y-2 rounded-lg border border-primary/40 bg-card p-3">
+      <div className="min-w-0 flex-1">
+        <MilestoneSchematicCard schematic={schematic} techTier={techTier} />
+      </div>
       {schematic.recipes.length > 0 ? (
         <div className="space-y-1">
           <p className="text-xs font-medium text-muted-foreground">

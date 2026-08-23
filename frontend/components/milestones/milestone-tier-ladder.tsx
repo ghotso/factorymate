@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl"
 
+import { GameItemCardGrid } from "@/components/game-item-card-grid"
 import { MilestoneSchematicCard } from "@/components/milestones/milestone-schematic-card"
 import { Badge } from "@/components/ui/badge"
 import type { TierLadderRow } from "@/lib/milestone-layout"
@@ -74,15 +75,16 @@ export function MilestoneTierLadder({ ladder }: MilestoneTierLadderProps) {
                 ) : null}
               </div>
 
-              <div className="flex flex-wrap gap-3">
+              <GameItemCardGrid>
                 {row.schematics.map((schematic) => (
-                  <MilestoneSchematicCard
-                    key={schematic.id}
-                    schematic={schematic}
-                    techTier={row.techTier}
-                  />
+                  <div key={schematic.id} className="flex h-full min-w-0">
+                    <MilestoneSchematicCard
+                      schematic={schematic}
+                      techTier={row.techTier}
+                    />
+                  </div>
                 ))}
-              </div>
+              </GameItemCardGrid>
             </div>
           </div>
         )

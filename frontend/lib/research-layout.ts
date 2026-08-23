@@ -1,7 +1,20 @@
 import type { ResearchNode } from "@/lib/api-types"
+import { GAME_ITEM_CARD_MIN_WIDTH_PX, GAME_ITEM_CARD_PAD_Y_PX } from "@/lib/game-item-card"
 
-export const RESEARCH_CELL_WIDTH = 140
-export const RESEARCH_CELL_HEIGHT = 100
+/** Horizontal cell padding (`p-2` on each side) around the card in the tree grid. */
+export const RESEARCH_CELL_PAD_PX = 16
+
+export const RESEARCH_CELL_WIDTH = GAME_ITEM_CARD_MIN_WIDTH_PX + RESEARCH_CELL_PAD_PX
+
+/** Minimum cell height; trees grow uniformly if a node title needs more room. */
+export const RESEARCH_CELL_HEIGHT = 176
+
+export function researchCellHeightForContent(contentHeight: number): number {
+  return Math.max(
+    RESEARCH_CELL_HEIGHT,
+    contentHeight + GAME_ITEM_CARD_PAD_Y_PX + RESEARCH_CELL_PAD_PX
+  )
+}
 
 export type ResearchBounds = {
   minX: number

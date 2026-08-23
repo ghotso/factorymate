@@ -14,6 +14,11 @@ import {
 } from "@/components/ui/popover"
 import { formatNumber } from "@/lib/format"
 import type { ResearchNode } from "@/lib/api-types"
+import {
+  GAME_ITEM_CARD_ICON_SIZE,
+  gameItemCardTitleClassName,
+  gameItemCardTriggerClassName,
+} from "@/lib/game-item-card"
 import { cn } from "@/lib/utils"
 
 type ResearchNodeCardProps = {
@@ -53,55 +58,65 @@ export function ResearchNodeCard({ node }: ResearchNodeCardProps) {
   const thumbnailClassName = node.cost[0]?.className
 
   return (
-    <Popover>
-      <PopoverTrigger
-        className={cn(
-          "flex h-20 w-full max-w-[120px] cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-center text-xs font-medium transition-colors hover:brightness-95",
-          nodeStateClasses(node.state)
-        )}
-      >
-        <ItemIcon className={thumbnailClassName} size={32} />
-        <span className="line-clamp-2 leading-tight">{node.name}</span>
-        <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-          {stateLabel}
-        </Badge>
-      </PopoverTrigger>
-      <PopoverContent align="center" className="w-72">
-        <PopoverHeader>
-          <PopoverTitle>{node.name}</PopoverTitle>
-          <PopoverDescription>
-            {t("nodeDetails.tier", { tier: node.techTier ?? "—" })}
-          </PopoverDescription>
-        </PopoverHeader>
-        <div className="flex flex-wrap gap-1">
-          <Badge variant="outline">{stateLabel}</Badge>
-          {node.category ? (
-            <Badge variant="secondary">{node.category}</Badge>
-          ) : null}
-        </div>
-        {node.cost.length > 0 ? (
-          <div className="flex flex-col gap-1.5">
-            <p className="text-xs font-medium text-muted-foreground">
-              {t("nodeDetails.cost")}
-            </p>
-            <div className="flex flex-wrap gap-1">
-              {node.cost.map((item) => (
-                <Badge
-                  key={`${node.id}-${item.name}`}
-                  variant="secondary"
-                  className="gap-1"
-                >
-                  <ItemIcon className={item.className} size={14} />
-                  {t("costItem", {
-                    name: item.name,
-                    amount: formatNumber(item.amount, 0),
-                  })}
-                </Badge>
-              ))}
-            </div>
+    <div className="h-full w-full">
+      <Popover>
+        <PopoverTrigger
+          className={cn(
+            gameItemCardTriggerClassName,
+            nodeStateClasses(node.state)
+          )}
+        >
+          <span
+            data-game-item-card-content=""
+            className="flex w-full flex-col items-center justify-center gap-1.5"
+          >
+            <ItemIcon
+              className={thumbnailClassName}
+              size={GAME_ITEM_CARD_ICON_SIZE}
+            />
+            <span className={gameItemCardTitleClassName}>{node.name}</span>
+            <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+              {stateLabel}
+            </Badge>
+          </span>
+        </PopoverTrigger>
+        <PopoverContent align="center" className="w-72">
+          <PopoverHeader>
+            <PopoverTitle>{node.name}</PopoverTitle>
+            <PopoverDescription>
+              {t("nodeDetails.tier", { tier: node.techTier ?? "—" })}
+            </PopoverDescription>
+          </PopoverHeader>
+          <div className="flex flex-wrap gap-1">
+            <Badge variant="outline">{stateLabel}</Badge>
+            {node.category ? (
+              <Badge variant="secondary">{node.category}</Badge>
+            ) : null}
           </div>
-        ) : null}
-      </PopoverContent>
-    </Popover>
+          {node.cost.length > 0 ? (
+            <div className="flex flex-col gap-1.5">
+              <p className="text-xs font-medium text-muted-foreground">
+                {t("nodeDetails.cost")}
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {node.cost.map((item) => (
+                  <Badge
+                    key={`${node.id}-${item.name}`}
+                    variant="secondary"
+                    className="gap-1"
+                  >
+                    <ItemIcon className={item.className} size={14} />
+                    {t("costItem", {
+                      name: item.name,
+                      amount: formatNumber(item.amount, 0),
+                    })}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </PopoverContent>
+      </Popover>
+    </div>
   )
 }
