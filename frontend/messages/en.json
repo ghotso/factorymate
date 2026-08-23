@@ -299,7 +299,10 @@
   "resourceSink": {
     "title": "Resource Sink",
     "description": "A.W.E.S.O.M.E. Sink coupon status and historical points.",
-    "chartTitle": "Historical trend",
+    "charts": {
+      "coupons": "Coupon inventory",
+      "points": "Total points"
+    },
     "pointsToCoupon": "{points} points to next coupon",
     "cards": {
       "coupons": "Coupons",

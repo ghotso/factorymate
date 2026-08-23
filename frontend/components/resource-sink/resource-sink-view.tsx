@@ -27,11 +27,6 @@ type ResourceSinkViewProps = {
   initialHistory: ResourceSinkHistoryResponse["items"]
 }
 
-const chartConfig = {
-  coupons: { label: "Coupons", color: "var(--chart-1)" },
-  points: { label: "Points", color: "var(--chart-2)" },
-} satisfies ChartConfig
-
 export function ResourceSinkView({
   initialStatus,
   initialHistory,
@@ -74,6 +69,29 @@ export function ResourceSinkView({
       })),
     [history]
   )
+
+  const couponsChartConfig = useMemo(
+    () =>
+      ({
+        coupons: { label: t("charts.coupons"), color: "var(--chart-1)" },
+      }) satisfies ChartConfig,
+    [t]
+  )
+
+  const pointsChartConfig = useMemo(
+    () =>
+      ({
+        points: { label: t("charts.points"), color: "var(--chart-2)" },
+      }) satisfies ChartConfig,
+    [t]
+  )
+
+  const chartContent =
+    loadingChart ? (
+      <p className="text-sm text-muted-foreground">{tCharts("loading")}</p>
+    ) : chartData.length === 0 ? (
+      <p className="text-sm text-muted-foreground">{tCharts("noData")}</p>
+    ) : null
 
   return (
     <div className="flex flex-1 flex-col gap-6 p-4 md:p-6">
@@ -126,26 +144,43 @@ export function ResourceSinkView({
         </Card>
       </div>
 
-      <Card>
-        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-4">
-          <CardTitle>{t("chartTitle")}</CardTitle>
+      <div className="space-y-4">
+        <div className="flex justify-end">
           <IntervalPicker value={interval} onChange={handleIntervalChange} />
-        </CardHeader>
-        <CardContent>
-          {loadingChart ? (
-            <p className="text-sm text-muted-foreground">{tCharts("loading")}</p>
-          ) : chartData.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{tCharts("noData")}</p>
-          ) : (
-            <TimeSeriesChart
-              data={chartData}
-              config={chartConfig}
-              series={[{ key: "coupons" }, { key: "points" }]}
-              compactTimeAxis={isShortTimePreset(interval)}
-            />
-          )}
-        </CardContent>
-      </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("charts.coupons")}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {chartContent ?? (
+              <TimeSeriesChart
+                data={chartData}
+                config={couponsChartConfig}
+                series={[{ key: "coupons" }]}
+                compactTimeAxis={isShortTimePreset(interval)}
+              />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("charts.points")}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {chartContent ?? (
+              <TimeSeriesChart
+                data={chartData}
+                config={pointsChartConfig}
+                series={[{ key: "points" }]}
+                compactTimeAxis={isShortTimePreset(interval)}
+              />
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }
